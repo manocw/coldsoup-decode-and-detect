@@ -42,3 +42,11 @@ profiles and deviation of a tx from the wallet's own history (hour-of-day, asset
   medium suspicious motifs are SLOWER than the look-alikes (span 1.84 h vs 1.03 h), so they rank below
   their own look-alikes. Non-monotone speed effect with only 29 medium scenarios: a modelling issue
   (weighting / separate medium head), not something wallet-history features fix.
+- Sample weight x4 on medium positives (all 7 + history minus bursts, 2 seeds): AP 60.9 -> 61.0, AP_medium 7.1 -> 7.5 (small; modelling-side lever).
+- v2 = v1 minus the 6 burst features, plus a bug fix (src/dst asset codes now share one code space,
+  affects s_asset_share_in / r_asset_share_out). 42 features.
+  3 seeds (harness, before the asset fix): all-7 59.5 (med 6.0) -> +history(no bursts) 60.8 (med 6.9);
+  without common_cp also 60.8 (med 6.7).
+  v2 standalone, 1 seed: starter+history AP=39.7 (easy 51.5, med 2.8); history alone 10.4 -> the
+  bursts were the standalone signal (v1: 49.3 / 35.1) but are redundant once funding/starter are in.
+- v2 official (ablate --only --seeds 2): all 7 + history AP=61.2 (easy 78.4, med 6.9, hard 1.21, relay 2.1) vs all 7 59.4 (76.7 / 6.0 / 1.11 / 2.0) => +1.8 AP.

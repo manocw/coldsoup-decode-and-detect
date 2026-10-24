@@ -99,16 +99,40 @@ def oof_scores(X, y, groups, rows, kind="lgbm", seed=0, n_splits=5):
     return s
 
 
-def stage2_matrix(X, p, s, mode):
-    nb = neighbor_features(p, s).to_numpy()
+def aux_targets(p):
+    """Auxiliary training targets from the annotations (targets only, never features): is the
+    payment part of a relay cohort, and is it part of any non-relay planted motif (suspicious or
+    legitimate look-alike). They have ~20k / ~2k positives, so stage 1 learns what relays and
+    motifs look like far better than from the 1,250 suspicious labels alone."""
+    relay = p.cohort_id.notna().to_numpy()
+    motif = p.scenario_id.notna().to_numpy() & ~relay & (p.family != "ambiguous").to_numpy()
+    return {"relay": relay.astype(int), "motif": motif.astype(int)}
+
+
+def stage2_matrix(X, p, s, mode, aux=None):
+    blocks = [neighbor_features(p, s).to_numpy()]
+    for a in (aux or {}).values():
+        blocks.append(neighbor_features(p, a).to_numpy())
+    nb = np.hstack(blocks)
     return nb if mode == "scores" else np.hstack([X, nb])
 
 
-def nested_cv(Xdf, p, kind="lgbm", seed=0, mode="full", n_splits=5):
+def _aux_scores(X, targets, groups, tr, te, kind, seed):
+    """OOF aux scores inside the training rows tr, full-fit scores for the rows te."""
+    out = {}
+    for name, ya in targets.items():
+        a = oof_scores(X, ya, groups, tr, kind, seed)
+        a[te] = _fit_scores(X, ya, tr, te, kind, seed)
+        out[name] = a
+    return out
+
+
+def nested_cv(Xdf, p, kind="lgbm", seed=0, mode="full", n_splits=5, aux=False):
     """Honest CV of stage 1 and stage 2 with identical outer folds."""
     X = Xdf.to_numpy(float)
     y = p.is_suspicious.to_numpy()
     groups = cv_groups(p)
+    targets = aux_targets(p) if aux else {}
     s1 = np.zeros(len(y))
     s2 = np.zeros(len(y))
     outer = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -117,22 +141,26 @@ def nested_cv(Xdf, p, kind="lgbm", seed=0, mode="full", n_splits=5):
         s_in = oof_scores(X, y, groups, tr, kind, seed)
         s_in[te] = _fit_scores(X, y, tr, te, kind, seed)
         s1[te] = s_in[te]
-        Z = stage2_matrix(X, p, s_in, mode)
+        a_in = _aux_scores(X, targets, groups, tr, te, kind, seed)
+        Z = stage2_matrix(X, p, s_in, mode, a_in)
         s2[te] = make_model(kind, seed).fit(Z[tr], y[tr]).predict_proba(Z[te])[:, 1]
         print(f"  outer fold {k + 1}/{n_splits} done", flush=True)
     return s1, s2
 
 
-def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="full"):
+def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="full", aux=False):
     Xtr, Xte = Xtr_df.to_numpy(float), Xte_df.to_numpy(float)
     y = ptr.is_suspicious.to_numpy()
     groups = cv_groups(ptr)
     rows = np.arange(len(y))
+    targets = aux_targets(ptr) if aux else {}
     out = np.zeros(len(Xte))
     for seed in seeds:
         s_tr = oof_scores(Xtr, y, groups, rows, kind, seed)
         s_te = make_model(kind, seed).fit(Xtr, y).predict_proba(Xte)[:, 1]
-        Ztr, Zte = stage2_matrix(Xtr, ptr, s_tr, mode), stage2_matrix(Xte, pte, s_te, mode)
+        a_tr = {n: oof_scores(Xtr, ya, groups, rows, kind, seed) for n, ya in targets.items()}
+        a_te = {n: make_model(kind, seed).fit(Xtr, ya).predict_proba(Xte)[:, 1] for n, ya in targets.items()}
+        Ztr, Zte = stage2_matrix(Xtr, ptr, s_tr, mode, a_tr), stage2_matrix(Xte, pte, s_te, mode, a_te)
         out += make_model(kind, seed).fit(Ztr, y).predict_proba(Zte)[:, 1]
     return out / len(seeds)
 
@@ -147,10 +175,11 @@ if __name__ == "__main__":
     ap.add_argument("--features", nargs="+", required=True)
     ap.add_argument("--mode", default="full", choices=["full", "scores"])
     ap.add_argument("--model", default="lgbm")
+    ap.add_argument("--aux", action="store_true", help="add auxiliary relay/motif targets to stage 1")
     a = ap.parse_args()
     p = load_split("train")
     X = build_features("train", a.features, p)
-    s1, s2 = nested_cv(X, p, a.model, mode=a.mode)
+    s1, s2 = nested_cv(X, p, a.model, mode=a.mode, aux=a.aux)
     for name, s in (("stage1", s1), (f"stage2[{a.mode}]", s2)):
         m = metrics(s, p)
         print(f"[{name}] " + "  ".join(f"{k}={v:.3f}" if v < 1.5 else f"{k}={v:.1f}" for k, v in m.items()))

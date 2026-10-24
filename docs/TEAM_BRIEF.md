@@ -162,6 +162,15 @@ the top 1%, at most 32% of all 1,250 positives can appear there, so ~342 hits me
   *slower* than their legitimate look-alikes (median step ~15-18 min vs ~9 min; best single
   statistic AUC 0.70) and keep more value per hop (0.91-0.96 vs 0.83-0.88). Even with perfect
   grouping the separation is weak, which explains the low medium AP.
+- **Medium is at the information limit for whole-scenario statistics.** A classifier given the TRUE
+  scenario groupings and 22 scenario statistics (size, span, step gaps, value spread and retention,
+  pair novelty, wallet degrees, conversions, network load, account sequence) separates medium
+  suspicious from legitimate look-alike scenarios at AUC 0.48 (logistic) / 0.57 (random forest),
+  i.e. chance; the same check gives AUC 0.87 / 0.91 for easy vs look-alike. Remaining gains are in
+  ranking easy cases above look-alikes, not in medium.
+- **Teammate model blend:** Marat's flow-episode features inside our CV score 56.9; combined with
+  ours in one model 60.3, rank-blended 0.9/0.1 60.4, vs 60.1 for ours alone: the two feature
+  designs capture the same signal, so blending gives no real gain.
 - **Grouping by shared wallets bleeds into background traffic** (one-off-pair grouping at a 30-min
   link is only 58% pure, 37% at 1 h), so medium motifs cannot simply be reconstructed and scored.
 - **Hard relay cases are near the information limit.** With the true relay scenarios (analysis
@@ -182,6 +191,15 @@ the top 1%, at most 32% of all 1,250 positives can appear there, so ~342 hits me
   splits, so this can only inflate CV, not leak into test.
 - Synthetic data: the patterns found are those of the simulator; real-ledger transfer is untested.
 
-## 9. Reproduce
+## 9. Team repo and the two models
+
+GitHub: https://github.com/manocw/xrpl_hackathon. `main` holds Marat's flow-episode LightGBM
+(`xrpl_hackathon/marat_model/`, site 66.8, CV 59.0) and `blend.py` (rank averaging). Branch
+`two-stage-model` adds this model as `xrpl_hackathon/two_stage_model/` (site 72.2) with its test
+predictions in `xrpl_hackathon/predictions/two_stage_v2b.csv`. Both are LightGBM on behavioural
+features; they differ in feature design (Marat: flow episodes + first-time-pair episodes at many
+time scales; two-stage: eight behavioural families + neighbour score sharing).
+
+## 10. Reproduce
 
 See `README.md`. One command, CPU only, ~1-2 minutes after placing the data under `data/`.

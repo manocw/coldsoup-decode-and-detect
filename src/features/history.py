@@ -12,8 +12,15 @@ week-long history of its pair, its sender and its receiver:
   scheduled relationships, value balance, spread over the week (as percentiles among the
   split's wallets so they transfer across splits);
 * deviation: the amount's percentile among the sender's payments and receipts (and the
-  receiver's), how usual the asset is for each side, local activity against the wallet's own
-  weekly rate, and how familiar the two wallets are (common counterparties).
+  receiver's), its share of the wallet's weekly volume, how usual the asset is for each side,
+  and how familiar the two wallets are (common counterparties).
+
+Measured on train (grouped CV, labels only for analysis; notes/history.md): over all 7 earlier
+families (3 seeds) AP 59.5 -> 60.8, AP_medium 6.0 -> 6.9; the wallet-role group carries most of
+it. Local activity against the wallet's weekly rate (+-1 h / +-6 h bursts, one-off bursts) was
+dropped: redundant with starter/funding windows and it cost ~1 AP. Wallet temporal profiles
+(burstiness, sessions), counterparty roles, slow-scale one-off excess, relay-round density,
+rate-normalised gaps and fan-out episode recurrence were tried and did not help.
 
 Only this split's own transactions are used, with times relative to each other.
 """
@@ -45,21 +52,6 @@ def _frac_le(book_keys, book_vals, q_keys, q_vals):
     return out
 
 
-def _window_counts(ev_keys, ev_t, q_keys, q_t, half):
-    """number of events of the same key within [t - half, t + half]."""
-    out = np.zeros(len(q_keys))
-    order = np.lexsort((ev_t, ev_keys))
-    ek, et = ev_keys[order], ev_t[order]
-    cut = np.r_[0, np.flatnonzero(ek[1:] != ek[:-1]) + 1, len(ek)]
-    book = {ek[a]: et[a:b] for a, b in zip(cut[:-1], cut[1:])}
-    for k, ix in pd.Series(np.arange(len(q_keys))).groupby(q_keys).indices.items():
-        tt = book.get(k)
-        if tt is None:
-            continue
-        out[ix] = np.searchsorted(tt, q_t[ix] + half, "right") - np.searchsorted(tt, q_t[ix] - half, "left")
-    return out
-
-
 def build(p):
     p = p.reset_index(drop=True)
     n = len(p)
@@ -71,8 +63,9 @@ def build(p):
     W = len(uniq)
     v = p.dst_usd.to_numpy(dtype=float)
     lv = np.log(np.clip(np.nan_to_num(v, nan=1e-6), 1e-6, None))
-    sa = pd.factorize(p.src_asset.to_numpy())[0]
-    da = pd.factorize(p.dst_asset.to_numpy())[0]
+    assets = pd.factorize(np.concatenate([p.src_asset.to_numpy(), p.dst_asset.to_numpy()]))[0]
+    sa, da = assets[:n].astype(np.int64), assets[n:].astype(np.int64)   # one code space for both sides
+    A = int(assets.max()) + 1
     f = pd.DataFrame(index=p.index)
 
     # ---------------- pair history ----------------
@@ -97,7 +90,7 @@ def build(p):
     lvs = pd.Series(lv).groupby(pair)
     f["pair_amt_dev"] = np.where(pair_n >= 2, lv - lvs.transform("median").to_numpy(), np.nan)
     f["pair_amt_std"] = np.where(pair_n >= 2, lvs.transform("std").to_numpy(), np.nan)
-    pa = pd.Series(pair * 64 + da)
+    pa = pd.Series(pair * A + da)
     f["pair_asset_share"] = np.where(pair_n >= 2, pa.map(pa.value_counts()).to_numpy() / pair_n, np.nan)
     periodic = (pair_n >= 3) & (np.nan_to_num(f.pair_gap_cv.to_numpy(), nan=9) < 0.1)
     oneoff = pair_n == 1
@@ -143,33 +136,13 @@ def build(p):
     f["r_amt_pct_out"] = _frac_le(S, lv, R, lv)    # vs what the receiver pays out
     f["s_amt_share_out"] = np.nan_to_num(v) / np.maximum(out_usd[S], 1e-9)
     f["r_amt_share_in"] = np.nan_to_num(v) / np.maximum(in_usd[R], 1e-9)
-    sk, rk = pd.Series(S * 64 + sa), pd.Series(R * 64 + da)
-    f["s_asset_share_out"] = sk.map(sk.value_counts()).to_numpy() / out_n[S]
-    f["r_asset_share_in"] = rk.map(rk.value_counts()).to_numpy() / in_n[R]
-    rin = pd.Series(R * 64 + da).value_counts()
-    sout = pd.Series(S * 64 + sa).value_counts()
-    f["s_asset_share_in"] = pd.Series(S * 64 + sa).map(rin).fillna(0).to_numpy() / np.maximum(in_n[S], 1)
-    f["r_asset_share_out"] = pd.Series(R * 64 + da).map(sout).fillna(0).to_numpy() / np.maximum(out_n[R], 1)
-
-    # local activity against the wallet's own weekly rate (any role)
-    ev_k = np.concatenate([S, R])
-    ev_t = np.concatenate([th, th])
-    rate = (out_n + in_n) / span_h
-    for half, name in ((0.5, "1h"), (3.0, "6h")):
-        cs = _window_counts(ev_k, ev_t, S, th, half)
-        cr = _window_counts(ev_k, ev_t, R, th, half)
-        f[f"s_burst_{name}"] = np.log((cs + 0.5) / (rate[S] * 2 * half + 0.5))
-        f[f"r_burst_{name}"] = np.log((cr + 0.5) / (rate[R] * 2 * half + 0.5))
-    # one-off relationships near this payment against the wallet's weekly one-off rate
-    oo = np.flatnonzero(oneoff)
-    ok_k = np.concatenate([S[oo], R[oo]])
-    ok_t = np.concatenate([th[oo], th[oo]])
-    orate = np.bincount(ok_k, minlength=W) / span_h
-    for half, name in ((1.5, "3h"),):
-        cs = _window_counts(ok_k, ok_t, S, th, half)
-        cr = _window_counts(ok_k, ok_t, R, th, half)
-        f[f"s_oneoff_burst_{name}"] = np.log((cs + 0.5) / (orate[S] * 2 * half + 0.5))
-        f[f"r_oneoff_burst_{name}"] = np.log((cr + 0.5) / (orate[R] * 2 * half + 0.5))
+    sk, rk = pd.Series(S * A + sa), pd.Series(R * A + da)
+    sout, rin = sk.value_counts(), rk.value_counts()
+    f["s_asset_share_out"] = sk.map(sout).to_numpy() / out_n[S]
+    f["r_asset_share_in"] = rk.map(rin).to_numpy() / in_n[R]
+    # does the sender also receive the asset it pays with; does the receiver also spend what it got
+    f["s_asset_share_in"] = sk.map(rin).fillna(0).to_numpy() / np.maximum(in_n[S], 1)
+    f["r_asset_share_out"] = rk.map(sout).fillna(0).to_numpy() / np.maximum(out_n[R], 1)
 
     # familiarity: counterparties the two wallets share over the week (undirected, excluding each other)
     a = np.minimum(S, R); b = np.maximum(S, R)

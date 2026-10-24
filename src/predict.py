@@ -48,6 +48,7 @@ def main():
     ap.add_argument("--name", required=True)
     ap.add_argument("--cv", action="store_true")
     ap.add_argument("--stack", action="store_true", help="add stage 2: neighbour score sharing (src.stack)")
+    ap.add_argument("--aux", action="store_true", help="with --stack: auxiliary relay/motif targets")
     ap.add_argument("--params", default="{}", help='LightGBM overrides as JSON, e.g. \'{"num_leaves": 15}\'')
     a = ap.parse_args()
     os.environ["XRPL_LGBM"] = a.params
@@ -57,17 +58,17 @@ def main():
     Xte = build_features("test", a.features, test)[Xtr.columns]
     seeds = list(range(a.seeds))
     meta = {"features": a.features, "model": a.model, "seeds": len(seeds), "n_features": Xtr.shape[1],
-            "stack": a.stack, "lgbm_params": lgbm_params()}
+            "stack": a.stack, "aux": a.aux, "lgbm_params": lgbm_params()}
     if a.cv:
         if a.stack:
-            s1, s2 = stack.nested_cv(Xtr, train, a.model)
+            s1, s2 = stack.nested_cv(Xtr, train, a.model, aux=a.aux)
             meta["cv_stage1"], meta["cv"] = metrics(s1, train), metrics(s2, train)
             print(f"[{a.name}] stage1 AP={meta['cv_stage1']['AP']:.1f}  stage2 AP={meta['cv']['AP']:.1f}")
         else:
             meta["cv"], _ = cv_report(Xtr, train, a.model, label=a.name)
 
     if a.stack:
-        s = stack.fit_predict(Xtr, train, Xte, test, a.model, seeds)
+        s = stack.fit_predict(Xtr, train, Xte, test, a.model, seeds, aux=a.aux)
     else:
         s = fit_predict(Xtr.to_numpy(float), train.is_suspicious.to_numpy(), Xte.to_numpy(float), a.model, seeds)
     sub = pd.DataFrame({"TRANSACTION_HASH": test.hash, "score": to_unit_range(s)})
