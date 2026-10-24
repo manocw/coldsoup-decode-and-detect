@@ -17,7 +17,9 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
-# two-stage model (v2b)
+# v3: two-stage model with the cycles family added
+./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --name v3_9fam_stack
+# two-stage model (v2b, site 72.2)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --stack --name v2b_8fam_stack
 # single-stage model (v2a)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --name v2a_8fam
@@ -28,8 +30,8 @@ F="starter funding relays fields motifs hops amounts history"
 Runtime on a 14-core laptop CPU: single-stage ~45 s, two-stage ~4 min (21 LightGBM fits);
 peak memory 1.4 / 1.9 GB. Feature building takes < 20 s per split per family and is cached under
 `cache/`. Add `--cv` to also print the grouped cross-validation report on train (nested CV for
-`--stack`, ~5 min). `src/features/cycles.py` and `groups.py` are experimental families not used
-by these runs.
+`--stack`, ~5 min). `src/features/groups.py` and `marat.py` (teammate features) are experimental and unused by
+these runs; `cycles.py` is used by v3 only.
 
 ## Layout
 
@@ -53,8 +55,9 @@ training target and for grouping CV folds, never as features. No external data i
 | Organiser starter notebook (logistic regression) | 29.9 |
 | Starter features + LightGBM | 33.7 |
 | v1: 7 feature families + LightGBM | 59.4 (site 71.0) |
-| v2a: + wallet history (8 families) | 60.1 |
-| v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 |
+| v2a: + wallet history (8 families) | 60.1 (site 71.3) |
+| v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 (site 72.2) |
+| v3: v2b + cycles family (nested CV) | 62.0 |
 
 ## Not written by us
 

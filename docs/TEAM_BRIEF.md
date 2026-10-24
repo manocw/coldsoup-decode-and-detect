@@ -12,7 +12,7 @@ results, interesting findings, limitations. Sections 2-8 map onto those.
 
 | Required item | Where it is / status |
 |---|---|
-| Test predictions CSV | `submissions/<run>.csv` (best so far: `v2b_8fam_stack.csv`, site score 72.2) |
+| Test predictions CSV | `submissions/<run>.csv` (best so far: `v3_9fam_stack.csv`, site score 72.3) |
 | Validation results | Section 6 below + `notes/leaderboard.md`; CV printed by `src.predict --cv` |
 | Code | `src/` (built into `submissions/code.zip` by `python -m src.package`) |
 | Model details / settings | Section 4 below; exact settings in `src/evaluate.py:make_model` |
@@ -127,7 +127,8 @@ motif between train and test folds. Metric = the site's AP, plus AP restricted t
 | v1: 7 families + LightGBM | 59.4 | 76.7 | 6.0 | 1.1 | **71.0** |
 | + stage-2 neighbour score sharing (nested CV, 7 families) | 61.3 | 79.5 | 6.1 | 1.2 | |
 | v2a: 8 families (+ history) | 60.1 | 77.3 | 6.4 | 1.1 | 71.3 (P@1% 96%, R@1% 31%) |
-| v2b: v2a + stage-2 score sharing (nested CV) | 61.6 | 79.6 | 6.3 | 1.2 | **72.2** (P@1% 94%, R@1% 30%) |
+| v2b: v2a + stage-2 score sharing (nested CV) | 61.6 | 79.6 | 6.3 | 1.2 | 72.2 (P@1% 94%, R@1% 30%) |
+| v3: v2b + cycles family (nested CV) | 62.0 | 79.9 | 6.5 | 1.2 | **72.3** (P@1% 94%, R@1% 30%) |
 
 Hyperparameters barely matter (1-seed CV AP, 8 families incl. history): default 60.1, 15 leaves /
 min 50 per leaf 60.3, 7 leaves / min 100 per leaf 59.2. Differences are within seed noise (~0.5),

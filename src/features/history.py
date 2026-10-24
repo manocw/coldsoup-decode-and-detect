@@ -110,9 +110,10 @@ def build(p):
     oneoff_in = np.bincount(R, weights=oneoff, minlength=W) / np.maximum(in_n, 1)
     per_out = np.bincount(S, weights=periodic, minlength=W) / np.maximum(out_n, 1)
     per_in = np.bincount(R, weights=periodic, minlength=W) / np.maximum(in_n, 1)
-    hours = np.concatenate([S, R]) * 200 + np.concatenate([th, th]).astype(np.int64) // 6
-    active = pd.Series(np.concatenate([S, R])).groupby(pd.Series(hours)).first().value_counts()
-    active = active.reindex(np.arange(W)).fillna(0).to_numpy() / max(span_h / 6, 1)
+    # spread over the week: share of 28 equal blocks of the split's span (~6 h) the wallet is active in
+    block = np.minimum((th / span_h * 28).astype(np.int64), 27)
+    active = pd.Series(np.r_[S, R] * 28 + np.r_[block, block]).drop_duplicates() // 28
+    active = np.bincount(active.to_numpy(), minlength=W) / 28.0
 
     def wpct(x):  # percentile among the split's wallets that appear
         return pd.Series(x).rank(pct=True).to_numpy()
