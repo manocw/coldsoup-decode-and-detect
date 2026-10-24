@@ -193,6 +193,18 @@ the top 1%, at most 32% of all 1,250 positives can appear there, so ~342 hits me
 | Blending with teammate Marat's flow-episode LightGBM (site 66.8) | +0.3 at 0.9/0.1 (noise); same signal as ours |
 | Auxiliary training targets (relay membership, any planted motif) | implemented (`--aux`), not finished in time |
 | Hyperparameter tuning | within +-0.5 (noise) |
+| Auxiliary training targets in stage 2 (is-relay, is-any-planted-motif; targets only, never features) | teammate run on 8 families: site 72.6 (+0.4 over v2b), CV medium AP 8.5 vs 6.3; v6 = this on 9 families |
+| Upstream "taint" (share of a wallet's incoming value that came from other suspicious payments, 6h-week) | null: AUC 0.37-0.53 for hard relays and medium; "planted historical patterns" are not inherited dirty money |
+| More scenario statistics for medium (gap regularity, minimum gap, amount drift, round/identical amounts, decimals, assets, hour, fee, same-ledger steps) | only "never a fast step" (min gap, AUC 0.71) and regular pacing (0.62); rest at chance |
+
+**Literature check (web research, 3 angles).** The typology set matches IBM AMLSim / AMLworld (fan-in/out,
+cycle, bipartite, stack, random, scatter-gather / gather-scatter). In AMLSim, suspicious and look-alike
+instances of a shape go through the same code and differ only in per-pattern parameters (per-hop margin,
+equal splits, round amounts, burst timing); we tested those and found this generator was altered (round /
+identical amounts, wallet reuse, motif context, counterparty churn and taint are all at chance here).
+State-of-the-art graph models (Multi-GNN with port numbering / ego IDs / reverse message passing,
+FraudGT) beat LightGBM + graph features on AMLworld (e.g. minority F1 68.2 vs 62.9 on HI-Small) but need
+hours of GPU work; our stage-2 neighbour pooling is a cheap emulation of their message passing.
 
 ## 8. Limitations (be honest on the slide)
 

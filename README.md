@@ -20,7 +20,9 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
-# v4: v3 + transductive self-training of stage 2 on the test week (2 rounds)
+# v6: v3 + auxiliary stage-1 targets (is-relay, is-any-planted-motif) pooled in stage 2
+./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --aux --name v6_9fam_stack_aux
+# v4: v3 + transductive self-training of stage 2 on the test week (2 rounds; site 72.2, not better)
 ./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --selftrain 2 --name v4_9fam_stack_selftrain
 # v3: two-stage model with the cycles family added
 ./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --name v3_9fam_stack
@@ -65,7 +67,8 @@ training target and for grouping CV folds, never as features. No external data i
 | v2a: + wallet history (8 families) | 60.1 (site 71.3) |
 | v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 (site 72.2) |
 | v3: v2b + cycles family (nested CV) | 62.0 (site 72.3) |
-| v4: v3 + stage-2 self-training on the test week | stage-1 CV simulation +1.0 (2 seeds) |
+| v4: v3 + stage-2 self-training on the test week | stage-1 CV simulation +1.0 (2 seeds); site 72.2 |
+| v6: v3 + auxiliary relay/motif targets (targets only, never features) | site: teammate's 8-family run 72.6 |
 
 ## Not written by us
 
