@@ -148,7 +148,35 @@ def nested_cv(Xdf, p, kind="lgbm", seed=0, mode="full", n_splits=5, aux=False):
     return s1, s2
 
 
-def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="full", aux=False):
+def _pseudo(s, pos_k, neg_q):
+    n = len(s)
+    order = np.argsort(-s, kind="stable")
+    return order[:int(round(pos_k * n))], order[n - int(round(neg_q * n)):]
+
+
+def self_train(Ztr, y, Zte, s_te, kind, seed, rounds=2, pos_k=0.015, neg_q=0.5, Zex=None, s_ex=None):
+    """Transductive self-training of the final scorer on the target split: its top pos_k scores
+    become pseudo-positives and its bottom neg_q pseudo-negatives, the model is refit on train plus
+    those rows and the target re-scored; repeated `rounds` times. The target's labels are never
+    used. In the stage-1 CV simulation (src/selftrain.py, 2 seeds) this setting gained +1.0 AP.
+    Zex/s_ex: an extra unlabelled split (the validation week), pseudo-labelled the same way."""
+    for _ in range(rounds):
+        pos, neg = _pseudo(s_te, pos_k, neg_q)
+        Z = [Ztr, Zte[pos], Zte[neg]]
+        yy = [y, np.ones(len(pos)), np.zeros(len(neg))]
+        if Zex is not None:
+            epos, eneg = _pseudo(s_ex, pos_k, neg_q)
+            Z += [Zex[epos], Zex[eneg]]
+            yy += [np.ones(len(epos)), np.zeros(len(eneg))]
+        m = make_model(kind, seed).fit(np.vstack(Z), np.concatenate(yy))
+        s_te = m.predict_proba(Zte)[:, 1]
+        if Zex is not None:
+            s_ex = m.predict_proba(Zex)[:, 1]
+    return s_te
+
+
+def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="full", aux=False,
+                selftrain_rounds=0, Xex_df=None, pex=None):
     Xtr, Xte = Xtr_df.to_numpy(float), Xte_df.to_numpy(float)
     y = ptr.is_suspicious.to_numpy()
     groups = cv_groups(ptr)
@@ -161,7 +189,18 @@ def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="fu
         a_tr = {n: oof_scores(Xtr, ya, groups, rows, kind, seed) for n, ya in targets.items()}
         a_te = {n: make_model(kind, seed).fit(Xtr, ya).predict_proba(Xte)[:, 1] for n, ya in targets.items()}
         Ztr, Zte = stage2_matrix(Xtr, ptr, s_tr, mode, a_tr), stage2_matrix(Xte, pte, s_te, mode, a_te)
-        out += make_model(kind, seed).fit(Ztr, y).predict_proba(Zte)[:, 1]
+        m2 = make_model(kind, seed).fit(Ztr, y)
+        s2 = m2.predict_proba(Zte)[:, 1]
+        if selftrain_rounds:
+            Zex = s2_ex = None
+            if Xex_df is not None:
+                Xex = Xex_df.to_numpy(float)
+                s1_ex = make_model(kind, seed).fit(Xtr, y).predict_proba(Xex)[:, 1]
+                a_ex = {n: make_model(kind, seed).fit(Xtr, ya).predict_proba(Xex)[:, 1] for n, ya in targets.items()}
+                Zex = stage2_matrix(Xex, pex, s1_ex, mode, a_ex)
+                s2_ex = m2.predict_proba(Zex)[:, 1]
+            s2 = self_train(Ztr, y, Zte, s2, kind, seed, rounds=selftrain_rounds, Zex=Zex, s_ex=s2_ex)
+        out += s2
     return out / len(seeds)
 
 

@@ -4,9 +4,12 @@ Scores every transaction of the synthetic XRPL-style ledger from the UKCBT "Deco
 hackathon with a suspicion score in [0, 1]. Each transaction gets behavioural features computed
 over the whole week of its own split (funding/fan structure, relay structure, hop trails,
 reconstructed motif groups, amounts, raw-field cadence, wallet history). A LightGBM model is
-trained on the labelled `train/` split and scores the test split. Optionally a second LightGBM
-stage re-scores each payment using the first-stage scores of its linked neighbours (same wallet
-close in time, hand-offs, one-off-pair motif groups), trained on out-of-fold first-stage scores.
+trained on the labelled `train/` split and scores the test split. A second LightGBM stage
+re-scores each payment using the first-stage scores of its linked neighbours (same wallet close in
+time, hand-offs, one-off-pair motif groups), trained on out-of-fold first-stage scores. v4 then
+self-trains that second stage on the test week: its 1.5% most confident payments become
+pseudo-positives and its bottom 50% pseudo-negatives (no test labels are used), and it is refit
+twice. This is allowed by the rules (the whole supplied window may be used, offline).
 
 ## Reproduce the predictions
 
@@ -17,6 +20,8 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
+# v4: v3 + transductive self-training of stage 2 on the test week (2 rounds)
+./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --selftrain 2 --name v4_9fam_stack_selftrain
 # v3: two-stage model with the cycles family added
 ./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --name v3_9fam_stack
 # two-stage model (v2b, site 72.2)
@@ -27,11 +32,13 @@ F="starter funding relays fields motifs hops amounts history"
 # -> submissions/<name>.csv  (TRANSACTION_HASH,score; 40,101 rows)
 ```
 
-Runtime on a 14-core laptop CPU: single-stage ~45 s, two-stage ~4 min (21 LightGBM fits);
-peak memory 1.4 / 1.9 GB. Feature building takes < 20 s per split per family and is cached under
+Runtime on a 14-core laptop CPU: single-stage ~45 s, two-stage ~4-7 min (21 LightGBM fits; v4
+adds 6 self-training fits, ~9 min); peak memory 1.4 / 1.9 GB. Feature building takes < 20 s per split per family and is cached under
 `cache/`. Add `--cv` to also print the grouped cross-validation report on train (nested CV for
 `--stack`, ~5 min). `src/features/groups.py` and `marat.py` (teammate features) are experimental and unused by
-these runs; `cycles.py` is used by v3 only.
+these runs; `cycles.py` is used from v3. `src/selftrain.py` is the CV simulation of self-training;
+`src/gnn.py`, `src/gnn_export.py` and `colab/gnn_colab.ipynb` are an experimental graph neural
+network for Colab (not used in the submitted predictions).
 
 ## Layout
 
@@ -57,7 +64,8 @@ training target and for grouping CV folds, never as features. No external data i
 | v1: 7 feature families + LightGBM | 59.4 (site 71.0) |
 | v2a: + wallet history (8 families) | 60.1 (site 71.3) |
 | v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 (site 72.2) |
-| v3: v2b + cycles family (nested CV) | 62.0 |
+| v3: v2b + cycles family (nested CV) | 62.0 (site 72.3) |
+| v4: v3 + stage-2 self-training on the test week | stage-1 CV simulation +1.0 (2 seeds) |
 
 ## Not written by us
 

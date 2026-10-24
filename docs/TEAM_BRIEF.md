@@ -182,6 +182,18 @@ the top 1%, at most 32% of all 1,250 positives can appear there, so ~342 hits me
 - Score sharing between linked payments (stage 2, nested CV) adds +2.3 AP (59.0 -> 61.3), almost
   all of it on easy cases.
 
+### Late experiments (for the "what we tried" slide)
+
+| Idea | Result |
+|---|---|
+| Self-training on the target week (top 1.5% pseudo-positive, bottom 50% pseudo-negative, 2 rounds) | +1.0 AP in a stage-1 CV simulation (seeds: +1.5, +0.5); used in v4 |
+| Pseudo-labelling the unlabelled validation week as extra training data | +0.8 AP (2 seeds); not used |
+| Motif context: funding before / cash-out after / common funder or destination | null: AUC 0.45-0.56 even with true grouping; the generator plants motifs with no surrounding laundering structure |
+| Graph neural network on a transaction graph (Colab notebook) | 49.2 AP vs LightGBM 63.6 on a quarter-week subset; +0.7 at a 10% blend; not used |
+| Blending with teammate Marat's flow-episode LightGBM (site 66.8) | +0.3 at 0.9/0.1 (noise); same signal as ours |
+| Auxiliary training targets (relay membership, any planted motif) | implemented (`--aux`), not finished in time |
+| Hyperparameter tuning | within +-0.5 (noise) |
+
 ## 8. Limitations (be honest on the slide)
 
 - Medium cases remain hard (AP ~6): slowed-down motifs look like legitimate ones; hard cases ~1.
