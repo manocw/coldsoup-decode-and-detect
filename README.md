@@ -4,9 +4,12 @@ Scores every transaction of the synthetic XRPL-style ledger from the UKCBT "Deco
 hackathon with a suspicion score in [0, 1]. Each transaction gets behavioural features computed
 over the whole week of its own split (funding/fan structure, relay structure, hop trails,
 reconstructed motif groups, amounts, raw-field cadence, wallet history). A LightGBM model is
-trained on the labelled `train/` split and scores the test split. Optionally a second LightGBM
-stage re-scores each payment using the first-stage scores of its linked neighbours (same wallet
-close in time, hand-offs, one-off-pair motif groups), trained on out-of-fold first-stage scores.
+trained on the labelled `train/` split and scores the test split. A second LightGBM stage
+re-scores each payment using the first-stage scores of its linked neighbours (same wallet close in
+time, hand-offs, one-off-pair motif groups), trained on out-of-fold first-stage scores. v4 then
+self-trains that second stage on the test week: its 1.5% most confident payments become
+pseudo-positives and its bottom 50% pseudo-negatives (no test labels are used), and it is refit
+twice. This is allowed by the rules (the whole supplied window may be used, offline).
 
 ## Team
 
@@ -24,9 +27,15 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
-# final: two-stage model with auxiliary relay/motif helper targets (v2c, site 72.6)
+# v6: v3 + auxiliary stage-1 targets (is-relay, is-any-planted-motif) pooled in stage 2 (site 73.0)
+./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --aux --name v6_9fam_stack_aux
+# v2c: 8 families + auxiliary targets (site 72.6)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --stack --aux --name v2c_8fam_stack_aux
-# two-stage model without helpers (v2b, site 72.2)
+# v4: v3 + transductive self-training of stage 2 on the test week (2 rounds; site 72.2, not better)
+./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --selftrain 2 --name v4_9fam_stack_selftrain
+# v3: two-stage model with the cycles family added
+./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --name v3_9fam_stack
+# two-stage model (v2b, site 72.2)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --stack --name v2b_8fam_stack
 # single-stage model (v2a)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --name v2a_8fam
@@ -34,12 +43,14 @@ F="starter funding relays fields motifs hops amounts history"
 # -> submissions/<name>.csv  (TRANSACTION_HASH,score; 40,101 rows)
 ```
 
-Runtime on a 14-core laptop CPU: single-stage ~45 s, two-stage ~4 min (21 LightGBM fits),
-two-stage with `--aux` ~4.5 min (57 fits; re-run on a second machine gave identical scores);
-peak memory 1.4 / 1.9 GB. Feature building takes < 20 s per split per family and is cached under
+Runtime on a 14-core laptop CPU: single-stage ~45 s, two-stage ~4-7 min (21 LightGBM fits; v4
+adds 6 self-training fits, ~9 min), two-stage with `--aux` ~4.5 min (57 fits; a re-run on a second
+machine gave identical scores); peak memory 1.4 / 1.9 GB. Feature building takes < 20 s per split per family and is cached under
 `cache/`. Add `--cv` to also print the grouped cross-validation report on train (nested CV for
-`--stack`, ~5 min). `src/features/cycles.py` and `groups.py` are experimental families not used
-by these runs.
+`--stack`, ~5 min). `src/features/groups.py` and `marat.py` (teammate features) are experimental and unused by
+these runs; `cycles.py` is used from v3. `src/selftrain.py` is the CV simulation of self-training;
+`src/gnn.py`, `src/gnn_export.py` and `colab/gnn_colab.ipynb` are an experimental graph neural
+network for Colab (not used in the submitted predictions).
 
 On Windows, if Application Control blocks pyarrow's parquet DLL ("DLL load failed while importing
 _parquet"), `pip install fastparquet` and run with that engine:
@@ -72,9 +83,12 @@ behavioural features; their out-of-fold scores feed stage 2. At test time nothin
 | Organiser starter notebook (logistic regression) | 29.9 |
 | Starter features + LightGBM | 33.7 |
 | v1: 7 feature families + LightGBM | 59.4 (site 71.0) |
-| v2a: + wallet history (8 families) | 60.1 |
+| v2a: + wallet history (8 families) | 60.1 (site 71.3) |
 | v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 (site 72.2) |
 | v2c: v2b + auxiliary relay/motif helper targets (nested CV) | 62.3 (site 72.6) |
+| v3: v2b + cycles family (nested CV) | 62.0 (site 72.3) |
+| v4: v3 + stage-2 self-training on the test week | stage-1 CV simulation +1.0 (2 seeds); site 72.2 |
+| v6: v3 + auxiliary relay/motif targets (targets only, never features) | site 73.0 |
 
 ## Not written by us
 

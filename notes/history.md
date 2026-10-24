@@ -50,3 +50,26 @@ profiles and deviation of a tx from the wallet's own history (hour-of-day, asset
   v2 standalone, 1 seed: starter+history AP=39.7 (easy 51.5, med 2.8); history alone 10.4 -> the
   bursts were the standalone signal (v1: 49.3 / 35.1) but are redundant once funding/starter are in.
 - v2 official (ablate --only --seeds 2): all 7 + history AP=61.2 (easy 78.4, med 6.9, hard 1.21, relay 2.1) vs all 7 59.4 (76.7 / 6.0 / 1.11 / 2.0) => +1.8 AP.
+- On top of v2 (2 seeds, 61.2): wallet-asset holding balance/counts 60.4; pair share of wallet volume + reverse volume 60.6 -> dropped.
+- Shift check (train vs test KS): max 0.099 (pair_amt_std: test has more 2-3x pairs and fewer 4x relay edges, within-pair-count stats match). spread fixed to a 28-block grid of the split's own span (was KS 0.18 from grid discreteness, now <0.06). validation differs more on common_cp (KS 0.28, fewer txs) - test matches train (0.01). Build: ~2.5 s per split, no NaN-only or inf columns.
+- FINAL v2 (spread on fixed grid): all 7 + history, ablate --only: 2 seeds AP=60.4 (easy 77.5, med 6.7, hard 1.19, relay 2.1); 3 seeds AP=60.4 (easy 77.4, med 6.7, hard 1.17, relay 2.0) vs all-7 3 seeds 59.5 (76.8 / 6.0 / 1.15 / 2.2). Pre-fix 2-seed run gave 61.2: small feature perturbations move CV AP by +-0.5-0.8, so the honest marginal is ~+1 AP (+0.7 AP_medium).
+- Final official 1-seed: starter+history AP=40.1 (easy 51.9, med 2.9, hard 0.75, relay 1.02);
+  history alone AP=10.4 (med 3.0).
+- Gain importance in a full fit on all 8 families: history = 11.9% of total gain (funding 30%,
+  motifs 27%, relays 17%, hops 9.5%). Top history feature pair_asset_share is #4 of 318 overall:
+  motif payments that land on a pair which also recurs in background/relay traffic use a different
+  asset from the pair's usual one (asset share < 1), while scheduled/relay pairs keep one asset.
+  Next: in/out degree percentiles, scheduled/one-off shares, amount percentiles.
+
+## Summary
+history v2 = 42 features (pair 6, wallet roles 24, deviation 10, familiarity 2). Marginal over all 7
+families ~+0.9 AP (3 seeds 59.5 -> 60.4; 2-seed runs 59.4 -> 60.4..61.2), AP_medium +0.7, AP_easy
++0.6..1.7. Builds on train/validation/test in ~2.5 s; train/test KS <= 0.1 everywhere.
+Medium remains the weak spot: medium motifs are slower than look-alikes and the model ranks them below
+them (learned "fast = suspicious" from easy); wallet history does not separate them (scenario AUC <= 0.6).
+- Correction: the old spread's train/test KS 0.18 was a KS artefact (grid k/27.979 vs k/27.980), not
+  real shift; the 28-block version is equivalent (KS 0.02) and changes a few wallets' block counts by 1.
+  That alone moved 2-seed CV AP 61.2 -> 60.4: the CV noise floor for near-identical feature sets is
+  ~0.8 AP, so sub-1-AP decisions need >= 3 seeds (or more folds/repeats).
+- Working tree vs HEAD (9545c62, which already holds history v2 with the asset fix): only the spread
+  grid change + these notes are uncommitted.

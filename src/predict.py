@@ -49,6 +49,10 @@ def main():
     ap.add_argument("--cv", action="store_true")
     ap.add_argument("--stack", action="store_true", help="add stage 2: neighbour score sharing (src.stack)")
     ap.add_argument("--aux", action="store_true", help="with --stack: auxiliary relay/motif targets")
+    ap.add_argument("--selftrain", type=int, default=0,
+                    help="with --stack: rounds of transductive self-training of stage 2 on the test split")
+    ap.add_argument("--selftrain-val", action="store_true",
+                    help="with --selftrain: also pseudo-label the unlabelled validation week")
     ap.add_argument("--params", default="{}", help='LightGBM overrides as JSON, e.g. \'{"num_leaves": 15}\'')
     a = ap.parse_args()
     os.environ["XRPL_LGBM"] = a.params
@@ -58,7 +62,8 @@ def main():
     Xte = build_features("test", a.features, test)[Xtr.columns]
     seeds = list(range(a.seeds))
     meta = {"features": a.features, "model": a.model, "seeds": len(seeds), "n_features": Xtr.shape[1],
-            "stack": a.stack, "aux": a.aux, "lgbm_params": lgbm_params()}
+            "stack": a.stack, "aux": a.aux, "selftrain_rounds": a.selftrain, "selftrain_val": a.selftrain_val,
+            "lgbm_params": lgbm_params()}
     if a.cv:
         if a.stack:
             s1, s2 = stack.nested_cv(Xtr, train, a.model, aux=a.aux)
@@ -68,7 +73,12 @@ def main():
             meta["cv"], _ = cv_report(Xtr, train, a.model, label=a.name)
 
     if a.stack:
-        s = stack.fit_predict(Xtr, train, Xte, test, a.model, seeds, aux=a.aux)
+        Xex = pex = None
+        if a.selftrain_val:
+            pex = load_split("validation", with_labels=False)
+            Xex = build_features("validation", a.features, pex)[Xtr.columns]
+        s = stack.fit_predict(Xtr, train, Xte, test, a.model, seeds, aux=a.aux,
+                              selftrain_rounds=a.selftrain, Xex_df=Xex, pex=pex)
     else:
         s = fit_predict(Xtr.to_numpy(float), train.is_suspicious.to_numpy(), Xte.to_numpy(float), a.model, seeds)
     sub = pd.DataFrame({"TRANSACTION_HASH": test.hash, "score": to_unit_range(s)})

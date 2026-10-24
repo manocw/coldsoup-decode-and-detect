@@ -12,7 +12,7 @@ results, interesting findings, limitations. Sections 2-8 map onto those.
 
 | Required item | Where it is / status |
 |---|---|
-| Test predictions CSV | `submissions/<run>.csv` (final: `v2c_8fam_stack_aux.csv`, site score 72.6; previous best `v2b_8fam_stack.csv`, 72.2) |
+| Test predictions CSV | `submissions/<run>.csv` (best so far: `v6_9fam_stack_aux.csv`, site score 73.0; `v2c_8fam_stack_aux.csv` 72.6) |
 | Validation results | Section 6 below + `notes/leaderboard.md`; CV printed by `src.predict --cv` |
 | Code | `src/` (built into `submissions/code.zip` by `python -m src.package`) |
 | Model details / settings | Section 4 below; exact settings in `src/evaluate.py:make_model` |
@@ -134,7 +134,9 @@ motif between train and test folds. Metric = the site's AP, plus AP restricted t
 | + stage-2 neighbour score sharing (nested CV, 7 families) | 61.3 | 79.5 | 6.1 | 1.2 | |
 | v2a: 8 families (+ history) | 60.1 | 77.3 | 6.4 | 1.1 | 71.3 (P@1% 96%, R@1% 31%) |
 | v2b: v2a + stage-2 score sharing (nested CV) | 61.6 | 79.6 | 6.3 | 1.2 | 72.2 (P@1% 94%, R@1% 30%) |
-| v2c: v2b + auxiliary relay/motif helper targets (nested CV) | 62.3 | 78.8 | 8.5 | 1.2 | **72.6** (P@1% 93%, R@1% 30%) |
+| v2c: v2b + auxiliary relay/motif helper targets (nested CV) | 62.3 | 78.8 | 8.5 | 1.2 | 72.6 (P@1% 93%, R@1% 30%) |
+| v3: v2b + cycles family (nested CV) | 62.0 | 79.9 | 6.5 | 1.2 | 72.3 (P@1% 94%, R@1% 30%) |
+| v6: v3 + auxiliary relay/motif targets | | | | | **73.0** |
 
 Hyperparameters barely matter (1-seed CV AP, 8 families incl. history): default 60.1, 15 leaves /
 min 50 per leaf 60.3, 7 leaves / min 100 per leaf 59.2. Differences are within seed noise (~0.5),
@@ -187,6 +189,30 @@ the top 1%, at most 32% of all 1,250 positives can appear there, so ~342 hits me
   all at AUC ~0.5. That caps what any model can do on these 200 payments.
 - Score sharing between linked payments (stage 2, nested CV) adds +2.3 AP (59.0 -> 61.3), almost
   all of it on easy cases.
+
+### Late experiments (for the "what we tried" slide)
+
+| Idea | Result |
+|---|---|
+| Self-training on the target week (top 1.5% pseudo-positive, bottom 50% pseudo-negative, 2 rounds) | +1.0 AP in a stage-1 CV simulation (seeds: +1.5, +0.5); used in v4 |
+| Pseudo-labelling the unlabelled validation week as extra training data | +0.8 AP (2 seeds); not used |
+| Motif context: funding before / cash-out after / common funder or destination | null: AUC 0.45-0.56 even with true grouping; the generator plants motifs with no surrounding laundering structure |
+| Graph neural network on a transaction graph (Colab notebook) | 49.2 AP vs LightGBM 63.6 on a quarter-week subset; +0.7 at a 10% blend; not used |
+| Blending with teammate Marat's flow-episode LightGBM (site 66.8) | +0.3 at 0.9/0.1 (noise); same signal as ours |
+| Auxiliary training targets (relay membership, any planted motif) | implemented (`--aux`), not finished in time |
+| Hyperparameter tuning | within +-0.5 (noise) |
+| Auxiliary training targets in stage 2 (is-relay, is-any-planted-motif; targets only, never features) | teammate run on 8 families: site 72.6 (+0.4 over v2b), CV medium AP 8.5 vs 6.3; v6 = this on 9 families |
+| Upstream "taint" (share of a wallet's incoming value that came from other suspicious payments, 6h-week) | null: AUC 0.37-0.53 for hard relays and medium; "planted historical patterns" are not inherited dirty money |
+| More scenario statistics for medium (gap regularity, minimum gap, amount drift, round/identical amounts, decimals, assets, hour, fee, same-ledger steps) | only "never a fast step" (min gap, AUC 0.71) and regular pacing (0.62); rest at chance |
+
+**Literature check (web research, 3 angles).** The typology set matches IBM AMLSim / AMLworld (fan-in/out,
+cycle, bipartite, stack, random, scatter-gather / gather-scatter). In AMLSim, suspicious and look-alike
+instances of a shape go through the same code and differ only in per-pattern parameters (per-hop margin,
+equal splits, round amounts, burst timing); we tested those and found this generator was altered (round /
+identical amounts, wallet reuse, motif context, counterparty churn and taint are all at chance here).
+State-of-the-art graph models (Multi-GNN with port numbering / ego IDs / reverse message passing,
+FraudGT) beat LightGBM + graph features on AMLworld (e.g. minority F1 68.2 vs 62.9 on HI-Small) but need
+hours of GPU work; our stage-2 neighbour pooling is a cheap emulation of their message passing.
 
 ## 8. Limitations (be honest on the slide)
 

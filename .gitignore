@@ -11,3 +11,5 @@ __pycache__/
 .ipynb_checkpoints/
 # organiser materials (from the training download), not ours to redistribute
 reference/
+colab_bundle/
+explore/

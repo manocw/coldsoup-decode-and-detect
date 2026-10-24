@@ -27,46 +27,77 @@ def _index(p, col):
     return {a: np.asarray(ix) for a, ix in p.groupby(col, sort=False).indices.items()}
 
 
-def _agg(vals):
-    if len(vals) == 0:
-        return 0.0, 0.0, 0.0
-    top = np.sort(vals)[-2:]
-    return float(vals.max()), float(vals.mean()), float(top.mean())
+RELATIONS = ("same_sender", "same_receiver", "downstream", "upstream")
+_NB_CACHE = {}
 
 
-def neighbor_features(p, s):
-    """Aggregates of scores s (aligned with p) over each tx's neighbourhoods, excluding itself."""
+def _neighbourhoods(p):
+    """For every window and relation, CSR arrays (indptr, idx) of each tx's neighbours (itself
+    excluded). Depends only on the week's payments, so it is built once per split and reused for
+    every score that gets pooled."""
+    key = (len(p), p.hash.iat[0], p.hash.iat[-1], p.ts.iat[len(p) // 2])
+    if key in _NB_CACHE:
+        return _NB_CACHE[key]
     ts = p.ts.to_numpy()
     by_sender, by_receiver = _index(p, "sender"), _index(p, "receiver")
     S, R = p.sender.to_numpy(), p.receiver.to_numpy()
     empty = np.empty(0, dtype=np.int64)
     out = {}
     for w in WINDOWS:
-        tag = f"{w // 60}m"
-        cols = {k: np.zeros(len(p)) for k in
-                [f"{r}_{a}_{tag}" for r in ("same_sender", "same_receiver", "downstream", "upstream")
-                 for a in ("max", "mean", "top2")]}
+        lists = {r: [] for r in RELATIONS}
         for i in range(len(p)):
             t = ts[i]
-            rel = {}
             ix = by_sender.get(S[i], empty)
             lo, hi = np.searchsorted(ts[ix], t - w, "left"), np.searchsorted(ts[ix], t + w, "right")
-            rel["same_sender"] = ix[lo:hi][ix[lo:hi] != i]
+            lists["same_sender"].append(ix[lo:hi][ix[lo:hi] != i])
             ix = by_receiver.get(R[i], empty)
             lo, hi = np.searchsorted(ts[ix], t - w, "left"), np.searchsorted(ts[ix], t + w, "right")
-            rel["same_receiver"] = ix[lo:hi][ix[lo:hi] != i]
+            lists["same_receiver"].append(ix[lo:hi][ix[lo:hi] != i])
             ix = by_sender.get(R[i], empty)             # receiver pays on within w
             lo, hi = np.searchsorted(ts[ix], t, "left"), np.searchsorted(ts[ix], t + w, "right")
-            rel["downstream"] = ix[lo:hi][ix[lo:hi] != i]
+            lists["downstream"].append(ix[lo:hi][ix[lo:hi] != i])
             ix = by_receiver.get(S[i], empty)           # sender was funded within w before
             lo, hi = np.searchsorted(ts[ix], t - w, "left"), np.searchsorted(ts[ix], t, "right")
-            rel["upstream"] = ix[lo:hi][ix[lo:hi] != i]
-            for r, nb in rel.items():
-                mx, mn, t2 = _agg(s[nb])
-                cols[f"{r}_max_{tag}"][i] = mx
-                cols[f"{r}_mean_{tag}"][i] = mn
-                cols[f"{r}_top2_{tag}"][i] = t2
-        out.update(cols)
+            lists["upstream"].append(ix[lo:hi][ix[lo:hi] != i])
+        for r, l in lists.items():
+            counts = np.fromiter((len(a) for a in l), dtype=np.int64, count=len(l))
+            indptr = np.r_[0, np.cumsum(counts)]
+            idx = np.concatenate(l) if indptr[-1] else empty
+            out[(w, r)] = (indptr, idx, counts)
+    _NB_CACHE.clear()
+    _NB_CACHE[key] = out
+    return out
+
+
+def _pool(s, indptr, idx, counts):
+    """max, mean and mean of the top two of s over each segment; 0 for empty segments."""
+    n = len(counts)
+    mx, mn, t2 = np.zeros(n), np.zeros(n), np.zeros(n)
+    nz = counts > 0
+    if not nz.any():
+        return mx, mn, t2
+    vals = s[idx]
+    seg = np.repeat(np.arange(n), counts)
+    order = np.lexsort((vals, seg))
+    v = vals[order]
+    last = indptr[1:][nz] - 1
+    mx[nz] = v[last]
+    mn[nz] = np.add.reduceat(vals, indptr[:-1][nz]) / counts[nz]
+    two = counts >= 2
+    t2[nz] = v[last]
+    t2[two] = (v[indptr[1:][two] - 1] + v[indptr[1:][two] - 2]) / 2
+    return mx, mn, t2
+
+
+def neighbor_features(p, s):
+    """Aggregates of scores s (aligned with p) over each tx's neighbourhoods, excluding itself."""
+    nbh = _neighbourhoods(p)
+    out = {}
+    for w in WINDOWS:
+        tag = f"{w // 60}m"
+        for r in RELATIONS:
+            mx, mn, t2 = _pool(s, *nbh[(w, r)])
+            out[f"{r}_max_{tag}"], out[f"{r}_mean_{tag}"], out[f"{r}_top2_{tag}"] = mx, mn, t2
     # motif groups: one-off payments linked through shared wallets within dt (see features.groups)
     pair = p.sender + ">" + p.receiver
     one_off = (pair.map(pair.value_counts()) == 1).to_numpy()
@@ -148,7 +179,35 @@ def nested_cv(Xdf, p, kind="lgbm", seed=0, mode="full", n_splits=5, aux=False):
     return s1, s2
 
 
-def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="full", aux=False):
+def _pseudo(s, pos_k, neg_q):
+    n = len(s)
+    order = np.argsort(-s, kind="stable")
+    return order[:int(round(pos_k * n))], order[n - int(round(neg_q * n)):]
+
+
+def self_train(Ztr, y, Zte, s_te, kind, seed, rounds=2, pos_k=0.015, neg_q=0.5, Zex=None, s_ex=None):
+    """Transductive self-training of the final scorer on the target split: its top pos_k scores
+    become pseudo-positives and its bottom neg_q pseudo-negatives, the model is refit on train plus
+    those rows and the target re-scored; repeated `rounds` times. The target's labels are never
+    used. In the stage-1 CV simulation (src/selftrain.py, 2 seeds) this setting gained +1.0 AP.
+    Zex/s_ex: an extra unlabelled split (the validation week), pseudo-labelled the same way."""
+    for _ in range(rounds):
+        pos, neg = _pseudo(s_te, pos_k, neg_q)
+        Z = [Ztr, Zte[pos], Zte[neg]]
+        yy = [y, np.ones(len(pos)), np.zeros(len(neg))]
+        if Zex is not None:
+            epos, eneg = _pseudo(s_ex, pos_k, neg_q)
+            Z += [Zex[epos], Zex[eneg]]
+            yy += [np.ones(len(epos)), np.zeros(len(eneg))]
+        m = make_model(kind, seed).fit(np.vstack(Z), np.concatenate(yy))
+        s_te = m.predict_proba(Zte)[:, 1]
+        if Zex is not None:
+            s_ex = m.predict_proba(Zex)[:, 1]
+    return s_te
+
+
+def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="full", aux=False,
+                selftrain_rounds=0, Xex_df=None, pex=None):
     Xtr, Xte = Xtr_df.to_numpy(float), Xte_df.to_numpy(float)
     y = ptr.is_suspicious.to_numpy()
     groups = cv_groups(ptr)
@@ -161,7 +220,18 @@ def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="fu
         a_tr = {n: oof_scores(Xtr, ya, groups, rows, kind, seed) for n, ya in targets.items()}
         a_te = {n: make_model(kind, seed).fit(Xtr, ya).predict_proba(Xte)[:, 1] for n, ya in targets.items()}
         Ztr, Zte = stage2_matrix(Xtr, ptr, s_tr, mode, a_tr), stage2_matrix(Xte, pte, s_te, mode, a_te)
-        out += make_model(kind, seed).fit(Ztr, y).predict_proba(Zte)[:, 1]
+        m2 = make_model(kind, seed).fit(Ztr, y)
+        s2 = m2.predict_proba(Zte)[:, 1]
+        if selftrain_rounds:
+            Zex = s2_ex = None
+            if Xex_df is not None:
+                Xex = Xex_df.to_numpy(float)
+                s1_ex = make_model(kind, seed).fit(Xtr, y).predict_proba(Xex)[:, 1]
+                a_ex = {n: make_model(kind, seed).fit(Xtr, ya).predict_proba(Xex)[:, 1] for n, ya in targets.items()}
+                Zex = stage2_matrix(Xex, pex, s1_ex, mode, a_ex)
+                s2_ex = m2.predict_proba(Zex)[:, 1]
+            s2 = self_train(Ztr, y, Zte, s2, kind, seed, rounds=selftrain_rounds, Zex=Zex, s_ex=s2_ex)
+        out += s2
     return out / len(seeds)
 
 
