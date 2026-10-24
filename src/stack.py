@@ -130,14 +130,21 @@ def oof_scores(X, y, groups, rows, kind="lgbm", seed=0, n_splits=5):
     return s
 
 
-def aux_targets(p):
+AUX_DEFAULT = ("relay", "motif")
+
+
+def aux_targets(p, names=AUX_DEFAULT):
     """Auxiliary training targets from the annotations (targets only, never features): is the
     payment part of a relay cohort, and is it part of any non-relay planted motif (suspicious or
     legitimate look-alike). They have ~20k / ~2k positives, so stage 1 learns what relays and
-    motifs look like far better than from the 1,250 suspicious labels alone."""
+    motifs look like far better than from the 1,250 suspicious labels alone. Optional "medium":
+    is it a medium suspicious payment (225), so slow suspicious motifs get a scorer of their own
+    instead of being drowned by the "fast = suspicious" pattern of the 800 easy ones."""
     relay = p.cohort_id.notna().to_numpy()
     motif = p.scenario_id.notna().to_numpy() & ~relay & (p.family != "ambiguous").to_numpy()
-    return {"relay": relay.astype(int), "motif": motif.astype(int)}
+    medium = (p.is_suspicious == 1).to_numpy() & (p.difficulty == "medium").to_numpy()
+    targets = {"relay": relay, "motif": motif, "medium": medium}
+    return {n: targets[n].astype(int) for n in names}
 
 
 def stage2_matrix(X, p, s, mode, aux=None):
@@ -163,7 +170,7 @@ def nested_cv(Xdf, p, kind="lgbm", seed=0, mode="full", n_splits=5, aux=False):
     X = Xdf.to_numpy(float)
     y = p.is_suspicious.to_numpy()
     groups = cv_groups(p)
-    targets = aux_targets(p) if aux else {}
+    targets = aux_targets(p, AUX_DEFAULT if aux is True else aux) if aux else {}
     s1 = np.zeros(len(y))
     s2 = np.zeros(len(y))
     outer = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -212,7 +219,7 @@ def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="fu
     y = ptr.is_suspicious.to_numpy()
     groups = cv_groups(ptr)
     rows = np.arange(len(y))
-    targets = aux_targets(ptr) if aux else {}
+    targets = aux_targets(ptr, AUX_DEFAULT if aux is True else aux) if aux else {}
     out = np.zeros(len(Xte))
     for seed in seeds:
         s_tr = oof_scores(Xtr, y, groups, rows, kind, seed)

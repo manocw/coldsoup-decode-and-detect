@@ -37,18 +37,18 @@
   <tr><td><b>Members</b></td><td>TODO_MEMBERS</td></tr>
   <tr><td><b>Code</b></td><td>github.com/manocw/xrpl_hackathon (branch <code>two-stage-model</code>);
       submitted ZIP built from commit <code>TODO_COMMIT</code></td></tr>
-  <tr><td><b>Final submission</b></td><td><code>v2c_8fam_stack_aux</code>: site score <b>72.6</b>
-      (100 &times; AP on the test week); grouped CV AP on train 62.3</td></tr>
+  <tr><td><b>Final submission</b></td><td><code>v7_10fam_tempo_aux</code>: site score <b>73.8</b>
+      (100 &times; AP on the test week); grouped CV AP on train 62.4</td></tr>
 </table>
 
 <div class="key">
-<b>Summary.</b> We score each payment with a two-stage LightGBM model over ~270 behavioural features
+<b>Summary.</b> We score each payment with a two-stage LightGBM model over ~390 behavioural features
 computed from the whole week of the payment's own split: who funded the sender and how fast, whether
-the payment is part of a fast multi-hop trail, whether a sender-receiver pair is a one-off, whether a
-hub behaves like a scheduled legitimate relay, and how the wallet's behaviour deviates from its own
-history. A second stage lets each payment borrow the first-stage scores of payments linked to it in
+the payment is part of a fast multi-hop trail or cycle, whether a sender-receiver pair is a one-off,
+whether a hub behaves like a scheduled legitimate relay, how the wallet's behaviour deviates from its own
+history, and the pace of the motif the payment belongs to. A second stage lets each payment borrow the first-stage scores of payments linked to it in
 time, including two helper models that learn what relays and planted motifs look like. The model goes
-from the organiser baseline's 29.9 grouped-CV AP to 62.3, and scores 72.6 on the test week. Easy motifs are essentially solved; medium and hard cases sit close to an information limit
+from the organiser baseline's 29.9 grouped-CV AP to 62.4, and scores 73.8 on the test week. Easy motifs are essentially solved; medium and hard cases sit close to an information limit
 that we measured directly.
 </div>
 
@@ -83,7 +83,7 @@ produced the findings the whole design rests on:</p>
 <h2>2. Methodology</h2>
 <pre>parquet (transactions + transfers + hourly rates)
  -> one row per payment: sender cost (first leg), delivered value, USD at the hourly rate
- -> 8 feature families, each computed on one split's unlabelled week only (cached)
+ -> 10 feature families, each computed on one split's unlabelled week only (cached)
  -> stage 1: LightGBM on train labels
  -> stage 1 helpers: LightGBM on auxiliary targets (relay cohort, planted motif); targets only
  -> stage 2: LightGBM re-scores each payment from its linked neighbours' out-of-fold stage-1 scores
@@ -103,12 +103,14 @@ is allowed by the rules and is what makes the hard, long-history cases visible a
 <tr><td>hops</td><td>Longest time-matched chain through the payment (10 min / 1 h / 6 h), hop delays, value kept per hop, cumulative skim, cash-out hub at the end of the trail</td><td class="n">50.8</td></tr>
 <tr><td>history</td><td>Pair regularity, wallet roles, deviation from the wallet's own week</td><td class="n">49.3</td></tr>
 <tr><td>amounts</td><td>Value relations to adjacent payments (pass-on ratios); static amount tests were null</td><td class="n">48.0</td></tr>
+<tr><td>cycles</td><td>Time-respecting paths back to the sender: cycle length, duration, value drift</td><td class="n">45.7</td></tr>
+<tr><td>tempo</td><td>Pace of the payment's one-off-pair group (min/median step, regularity, a 12-45 min "slow band") and whether value rises or falls at each hand-off. Medium motifs are slower than look-alikes (median step 17.8 vs 9.5 min); look-alikes lose value at every hop</td><td class="n">-</td></tr>
 </table>
 
 <h2>4. Model</h2>
 <ul>
   <li><b>Stage 1:</b> LightGBM, binary log-loss, 400 trees, learning rate 0.03, 31 leaves, &ge;20 samples per
-  leaf, 80% row and column subsampling, L2 = 1.0, averaged over 3 seeds; ~270 features.</li>
+  leaf, 80% row and column subsampling, L2 = 1.0, averaged over 3 seeds; 389 features.</li>
   <li><b>Stage 2 (score sharing):</b> for each payment, max / mean / top-2 mean of the stage-1 scores of
   (a) the same sender's and (b) the same receiver's payments within 10 min, 1 h and 6 h, (c) the receiver's
   onward payments, (d) the sender's funding payments in those windows, and (e) its one-off-pair motif group
@@ -144,14 +146,17 @@ positives against all negatives). Hyperparameters were checked but barely matter
 <tr><td>v1: 7 families + LightGBM</td><td class="n">59.4</td><td class="n">76.7</td><td class="n">6.0</td><td class="n">1.1</td><td class="n">71.0</td></tr>
 <tr><td>v2a: 8 families (+ history)</td><td class="n">60.1</td><td class="n">77.3</td><td class="n">6.4</td><td class="n">1.1</td><td class="n">71.3</td></tr>
 <tr><td>v2b: v2a + stage-2 score sharing (nested CV)</td><td class="n">61.6</td><td class="n">79.6</td><td class="n">6.3</td><td class="n">1.2</td><td class="n">72.2</td></tr>
-<tr><td><b>v2c: v2b + auxiliary relay/motif helper targets (nested CV)</b></td><td class="n"><b>62.3</b></td><td class="n">78.8</td><td class="n">8.5</td><td class="n">1.2</td><td class="n"><b>72.6</b></td></tr>
+<tr><td>v2c: v2b + auxiliary relay/motif helper targets</td><td class="n">62.3</td><td class="n">78.8</td><td class="n">8.5</td><td class="n">1.2</td><td class="n">72.6</td></tr>
+<tr><td>v3: v2b + cycles family</td><td class="n">62.0</td><td class="n">79.9</td><td class="n">6.5</td><td class="n">1.2</td><td class="n">72.3</td></tr>
+<tr><td>v6: v3 + auxiliary helper targets (9 families)</td><td class="n">62.1</td><td class="n">77.9</td><td class="n">9.1</td><td class="n">1.2</td><td class="n">73.0</td></tr>
+<tr><td><b>v7: v6 + tempo family (final)</b></td><td class="n"><b>62.4</b></td><td class="n">78.4</td><td class="n">9.2</td><td class="n">1.2</td><td class="n"><b>73.8</b></td></tr>
 </table>
-<p>On the test week, v2c's top 1% (~401 payments) is 93% precise and holds 30% of all positives (v2b: 94%,
-30%); ~50% of easy positives are there and no hard ones. Only ~32% of positives can fit in the top 1% at
-all. The helpers' gain is deeper in the ranking: v2c and v2b share 1,144 of their top 1,250 payments, and in
-CV the gain is on medium cases (AP 6.3 &rarr; 8.5), which mostly sit beyond the top 1%. A re-run of v2b on
-another machine scored 72.1, and 3- vs 10-seed v2b runs share only 369 of 401 top-1% payments, so
-differences of a few tenths are partly seed noise. The site score is above our grouped CV, i.e. the behavioural features transfer to
+<p>On the test week, v7's top 1% (~401 payments) is 94% precise and holds 30% of all positives: ~50% of easy
+and ~10% of medium positives (v2c: 0% medium), none of the hard ones. Only ~32% of positives can fit in the
+top 1% at all. CV moves less than the site (v6 &rarr; v7: CV +0.4, site +0.8): 3- vs 10-seed runs of one model
+share only 369 of 401 top-1% payments, so CV differences of a few tenths are partly seed noise, and we use the
+site only to confirm changes that CV supports or at least does not reject. Re-runs of v2b and v2c on a second
+machine reproduced their files exactly. The site score is above our grouped CV, i.e. the behavioural features transfer to
 a week with new wallets, new issuers and more currency conversions.</p>
 
 <h2>7. Interesting findings</h2>
@@ -173,6 +178,10 @@ a week with new wallets, new issuers and more currency conversions.</p>
   <li><b>Hard relays likewise.</b> With the true relay scenarios, the only property separating the 12
   suspicious relays from 1,188 legitimate ones is direction (all forwards vs half refills, AUC 0.75); size,
   rounds, counterparties, retention, amounts and conversions are all at AUC ~0.5.</li>
+  <li><b>Telling the model the pace pays off on the test week.</b> A model trained mostly on easy (fast) cases
+  learns "fast = suspicious" and ranks slow medium motifs below look-alikes. Stating each motif group's pace
+  and hop-value pattern explicitly (tempo) lifted the site score from 73.0 to 73.8 and brought medium
+  payments back into the top 1%.</li>
   <li><b>Learning "structure" separately from "bad" helps medium cases.</b> The relay/motif helper targets lift
   medium AP from 6.3 to 8.5 in CV, the only change that moved medium at all.</li>
   <li><b>Score sharing helps where motifs are clear.</b> Stage 2 adds +1.5 to +2.3 CV AP, nearly all of it on
@@ -190,7 +199,10 @@ a week with new wallets, new issuers and more currency conversions.</p>
     <td>No excess mass under any threshold; amounts top out ~4.6k USD. Only relations to adjacent payments (pass-on ratios) carry signal.</td></tr>
 <tr><td>Hour-of-day profiles</td><td>Null</td><td>Motifs are uniform in time; the useful version is "network load around the payment".</td></tr>
 <tr><td>Mule-wallet reuse across scenarios</td><td>Null</td><td>Wallets in medium/hard scenarios are no more linked to other suspicious scenarios than look-alike wallets (6.9% vs 6.6%).</td></tr>
-<tr><td>Time-respecting cycle family (<code>cycles</code>)</td><td>CV ~45.7 alone; no gain on top</td><td>Cycles are already captured by hops and motifs.</td></tr>
+<tr><td>A third helper target "medium suspicious" (225 positives)</td><td>CV 62.3 vs 62.1; medium AP 8.8 vs 9.1</td><td>Too few medium positives for a separate scorer; tempo carries the pace signal better.</td></tr>
+<tr><td>Self-training stage 2 on the test week (top 1.5% / bottom 50%, 2 rounds)</td><td>Site 72.2 vs v3 72.3</td><td>Reinforces the easy cases the model already ranks well.</td></tr>
+<tr><td>Graph neural network on the transaction graph (Colab)</td><td>AP 49.2 vs LightGBM 63.6 on a quarter week</td><td>Trees on engineered features win at this data size; +0.7 only as a 10% blend.</td></tr>
+<tr><td>Motif context: funding before, cash-out after, common funder or destination</td><td>AUC 0.45-0.56 with true groupings</td><td>The generator plants motifs with no surrounding laundering structure.</td></tr>
 <tr><td>Reconstructing medium motifs by shared wallets and scoring the group</td><td>No gain</td><td>Grouping bleeds into background traffic: one-off-pair groups are only 58% pure at a 30-min link, 37% at 1 h.</td></tr>
 <tr><td>Hyperparameter tuning (leaves, min samples per leaf)</td><td>59.2-60.3 vs 60.1</td><td>Within seed noise; the limit is information, not capacity.</td></tr>
 <tr><td>Weighting suspicious payments &times;2 (<code>scale_pos_weight</code> 2) in both stages</td><td>CV 60.5 vs 61.6</td><td>AP depends only on ranking; extra weight made stage 2 overfit the positives (medium AP 5.8 vs 6.3).</td></tr>
@@ -204,7 +216,7 @@ a week with new wallets, new issuers and more currency conversions.</p>
 
 <h2>9. Limitations</h2>
 <ul>
-  <li>Medium cases remain hard (AP ~8) and hard cases near random (AP ~1): slowed-down motifs look like
+  <li>Medium cases remain hard (AP ~9) and hard cases near random (AP ~1): slowed-down motifs look like
   their legitimate look-alikes, and we showed this holds even with perfect grouping.</li>
   <li>25 "ambiguous" hard payments sit inside regular scheduled series with the same amount and period as
   their legitimate siblings: unlearnable by construction.</li>
@@ -213,16 +225,15 @@ a week with new wallets, new issuers and more currency conversions.</p>
   <li>Whole-week per-wallet aggregates could memorise wallets inside train and so inflate CV; wallets are
   disjoint across splits, so this cannot leak into test (and the site score is above CV).</li>
   <li>The data is synthetic: the patterns are the simulator's. Transfer to the real XRPL is untested.</li>
-  <li>Future work: a temporal edge-level graph neural network. Stage 2 is already one hand-built round of
-  message passing; we did not expect a GNN to recover the medium/hard signal that whole-scenario statistics
-  lack, and it needs a GPU we did not have.</li>
+  <li>Future work: a temporal edge-level graph neural network with GPU time. Our quick GNN trailed the trees;
+  stage 2 is already one hand-built round of message passing.</li>
 </ul>
 
 <h2>10. Reproducibility</h2>
 <p>Python 3.14, CPU only. Put the organiser data under <code>data/train/</code> and <code>data/test/</code>, then:</p>
 <pre>python -m venv venv &amp;&amp; ./venv/bin/pip install -r requirements.txt
 ./venv/bin/python -m src.predict --features starter funding relays fields motifs hops amounts history \
-    --seeds 3 --stack --aux --name v2c_8fam_stack_aux   # -> submissions/v2c_8fam_stack_aux.csv</pre>
+    cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux   # -> submissions/v7_10fam_tempo_aux.csv</pre>
 <p>Add <code>--cv</code> for the nested grouped CV report. Libraries: pandas, numpy, pyarrow, scikit-learn,
 LightGBM, networkx, scipy. Labels and annotation metadata are used only as training targets (main and helper
 models) and for CV grouping, never as features; no external data. The code was written with AI assistance (Claude Code) under the team's direction and

@@ -8,7 +8,9 @@
 | 2026-10-24 | v3_9fam_stack | 62.0 (nested) | 72.3 (ROC AUC 0.95) | P@1% 94%, R@1% 30%; easy 50%, medium 10%, hard 0%, amb 0% | v2b + cycles family |
 | 2026-10-24 | v2c_8fam_stack_aux | 62.3 (nested) | 72.6 | P@1% 93%, R@1% 30%; easy 50%, medium 0%, hard 0%, amb 0% | v2b + auxiliary relay/motif helper targets (--aux) |
 | 2026-10-24 | v2d_8fam_stack_pw2 | 60.5 (nested) | - | - | v2b + scale_pos_weight 2; rejected on CV |
-| 2026-10-24 | v6_9fam_stack_aux | | **73.0** | | v3 + aux (teammate) |
+| 2026-10-24 | v6_9fam_stack_aux | 62.1 (nested) | 73.0 | | v3 + aux (teammate) |
+| 2026-10-24 | v7_10fam_tempo_aux | 62.4 (nested) | **73.8** | P@1% 94%, R@1% 30%; easy 50%, medium 10%, hard 0%, amb 0% | v6 + tempo family; final |
+| 2026-10-24 | v8_9fam_aux_medium | 62.3 (nested) | - | - | v6 + medium helper target; medium AP 8.8 vs 9.1, rejected |
 
 Reading the site's breakdown: top 1% = ~401 tx, so at most ~32% of the 1,250 positives fit; 40% easy +
 10% medium ~= 342 hits -> top-1% precision ~0.85. Site score > CV: test seems at least as easy as train for

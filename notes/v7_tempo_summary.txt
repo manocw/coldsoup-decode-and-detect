@@ -1,0 +1,57 @@
+v7_10fam_tempo_aux - what was done (team coldsoup, 2026-10-24)
+=================================================================
+
+RESULT
+  Site score 73.8 (100 x AP on the test week), best so far.
+  Top 1%: precision 94%, recall 30%; easy 50% of 800, medium 10% of 225, hard 0%, ambiguous 0%.
+  Previous bests: v6 73.0, v2c 72.6, v3 72.3, v2b 72.2.
+  Predictions: submissions/v7_10fam_tempo_aux.csv (40,101 rows, validated).
+
+WHAT THE MODEL IS
+  v7 = v6 + the "tempo" feature family.
+  - v6 (manocw): 9 behavioural feature families (starter, funding, relays, fields, motifs, hops,
+    amounts, history, cycles), two-stage LightGBM, with auxiliary helper targets (--aux).
+  - tempo (src/features/tempo.py, written by manocw in the v6 commit but not used in any run until
+    now): describes the pace and value pattern of each payment's one-off-pair motif group, linked
+    at 10 / 30 / 45 min:
+      * group size, minimum / median step gap, gap regularity (CV), span;
+      * "tempo" = log(median step / 10 min) and a "slow band" flag (median step 12-45 min,
+        no step under 6 min, >= 3 payments);
+      * value at each hand-off: share of rising hops, whether every hop loses 8-40% (the
+        look-alike pattern), largest / smallest value ratio.
+    Why: on train, medium suspicious motifs are SLOWER than their legitimate look-alikes (median
+    step 17.8 vs 9.5 min) and look-alikes lose value at every hop, while suspicious motifs do not.
+    A model trained mostly on easy (fast) cases learns "fast = suspicious"; tempo states the pace
+    explicitly so the model can also learn "slow, regular, value-keeping = suspicious".
+  - Nothing else changed: same LightGBM settings, 3 seeds, same stage-2 neighbour pooling.
+  - 389 features in total (36 from tempo).
+
+AUXILIARY TARGETS (disclosure, unchanged from v6/v2c)
+  Stage 1 also trains two helper models on annotation targets from train/labels.csv:
+  "part of a relay cohort" (cohort_id) and "part of a planted non-relay scenario, suspicious or
+  look-alike" (scenario_id, family != ambiguous). Targets only, never features; at test time
+  nothing from labels.csv is used.
+
+VALIDATION (5-fold grouped nested CV on train, seed 0)
+  run                     CV AP   easy   medium  hard
+  v6 (9 fam + aux)        62.05   77.87   9.13   1.20   site 73.0
+  v7 (v6 + tempo)         62.43   78.42   9.17   1.20   site 73.8
+  CV gain +0.4 is within seed noise (~0.5) and medium AP did not move in CV, but the site gained
+  +0.8 and medium in the top 1% went 0% (v2c) -> 10%. Test rankings: v7 shares 339 of v6's 401
+  top-1% payments, so the two models differ in a meaningful way.
+
+REPRODUCE (CPU only, ~5 min without --cv)
+  F="starter funding relays fields motifs hops amounts history cycles tempo"
+  ./venv/bin/python -m src.predict --features $F --seeds 3 --stack --aux --name v7_10fam_tempo_aux
+  (Windows with pyarrow's parquet DLL blocked: see README for the fastparquet wrapper.)
+
+GIT STATE (Marat's laptop)
+  - manocw's v3 / v4 / v6 commits merged locally (merge commit a392120). NOT pushed.
+  - Committed locally with the docs: --aux-targets option in src/predict.py and src/stack.py
+    (optional "medium" helper target, used only by the rejected v8 experiment) and this file.
+
+TESTED AFTER v7 (rejected)
+  v8 = v6 + a third helper target "is this a medium suspicious payment" (225 positives, difficulty
+  column, targets only; src.predict --aux-targets relay motif medium).
+  Nested CV 62.28 vs v6 62.05; medium AP 8.84 vs 9.13 -> no gain, not used. With only 225 medium
+  positives a separate scorer adds nothing that stage 2 can use; tempo carries the pace signal better.

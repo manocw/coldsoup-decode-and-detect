@@ -6,17 +6,17 @@ over the whole week of its own split (funding/fan structure, relay structure, ho
 reconstructed motif groups, amounts, raw-field cadence, wallet history). A LightGBM model is
 trained on the labelled `train/` split and scores the test split. A second LightGBM stage
 re-scores each payment using the first-stage scores of its linked neighbours (same wallet close in
-time, hand-offs, one-off-pair motif groups), trained on out-of-fold first-stage scores. v4 then
-self-trains that second stage on the test week: its 1.5% most confident payments become
-pseudo-positives and its bottom 50% pseudo-negatives (no test labels are used), and it is refit
-twice. This is allowed by the rules (the whole supplied window may be used, offline).
+time, hand-offs, one-off-pair motif groups), trained on out-of-fold first-stage scores. The final
+model (v7) uses 10 feature families, including the motif pace ("tempo") of each payment's one-off-pair
+group, and two auxiliary stage-1 helper models (relay-cohort and planted-motif membership; annotation
+targets only, never features) whose neighbour-pooled scores also feed stage 2.
 
 ## Team
 
 - Team: coldsoup
 - Captain: TODO_CAPTAIN
 - Members: TODO_MEMBERS
-- Final submission: `v2c_8fam_stack_aux` (site score 72.6). Report: `docs/report.pdf` (source `docs/report.html`).
+- Final submission: `v7_10fam_tempo_aux` (site score 73.8). Report: `docs/report.pdf` (source `docs/report.html`).
 
 ## Reproduce the predictions
 
@@ -27,6 +27,8 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
+# final - v7: v6 + the tempo family (site 73.8)
+./venv/bin/python -m src.predict --features $F cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux
 # v6: v3 + auxiliary stage-1 targets (is-relay, is-any-planted-motif) pooled in stage 2 (site 73.0)
 ./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --aux --name v6_9fam_stack_aux
 # v2c: 8 families + auxiliary targets (site 72.6)
@@ -54,7 +56,7 @@ network for Colab (not used in the submitted predictions).
 
 On Windows, if Application Control blocks pyarrow's parquet DLL ("DLL load failed while importing
 _parquet"), `pip install fastparquet` and run with that engine:
-`python -c "import sys,runpy,pandas as pd; pd.set_option('io.parquet.engine','fastparquet'); sys.argv=['src.predict',*sys.argv[1:]]; runpy.run_module('src.predict',run_name='__main__')" --features $F --seeds 3 --stack --aux --name v2c_8fam_stack_aux`
+`python -c "import sys,runpy,pandas as pd; pd.set_option('io.parquet.engine','fastparquet'); sys.argv=['src.predict',*sys.argv[1:]]; runpy.run_module('src.predict',run_name='__main__')" --features $F cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux`
 
 ## Layout
 
@@ -88,7 +90,9 @@ behavioural features; their out-of-fold scores feed stage 2. At test time nothin
 | v2c: v2b + auxiliary relay/motif helper targets (nested CV) | 62.3 (site 72.6) |
 | v3: v2b + cycles family (nested CV) | 62.0 (site 72.3) |
 | v4: v3 + stage-2 self-training on the test week | stage-1 CV simulation +1.0 (2 seeds); site 72.2 |
-| v6: v3 + auxiliary relay/motif targets (targets only, never features) | site 73.0 |
+| v6: v3 + auxiliary relay/motif targets (targets only, never features) | 62.1 (site 73.0) |
+| **v7: v6 + tempo family (final)** | **62.4 (site 73.8)** |
+| v8: v6 + a third helper target "medium suspicious" (`--aux-targets relay motif medium`) | 62.3, medium AP 8.8 vs 9.1: rejected |
 
 ## Not written by us
 
