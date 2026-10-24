@@ -11,9 +11,31 @@ import zipfile
 
 from src.load import ROOT
 
-INCLUDE = ["README.md", "LICENSE", "requirements.txt", "docs/TEAM_BRIEF.md", "notes/leaderboard.md"]
+INCLUDE = ["README.md", "LICENSE", "requirements.txt", "docs/report.pdf", "docs/TEAM_BRIEF.md",
+           "notes/leaderboard.md"]
 INCLUDE_DIRS = ["src", "colab", "notes"]
 LIMIT = 8 * 1024 * 1024
+
+
+def submission_info(predictions):
+    """Team details and the exact code version, stamped into the ZIP at build time."""
+    import subprocess
+    try:
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+                                text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        commit = "unknown"
+    return (f"Team: coldsoup
+Captain: Manolo Chow
+"
+            f"Members: Manolo Chow (captain), Marat Sagdiiev, Tomas Balnionis
+"
+            f"Version: git commit {commit}
+Predictions: submissions/{predictions}.csv
+"
+            f"Report: docs/report.pdf
+Run instructions, model details and validation results: README.md
+")
 
 
 def main():
@@ -36,6 +58,7 @@ def main():
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, allowZip64=False) as z:
         for f in files:
             z.write(f, f.relative_to(ROOT))
+        z.writestr("SUBMISSION_INFO.txt", submission_info(a.predictions))
     size = out.stat().st_size
     raw = sum(f.stat().st_size for f in files)
     assert size < LIMIT and raw < 64 * 1024 * 1024 and len(files) < 2000
