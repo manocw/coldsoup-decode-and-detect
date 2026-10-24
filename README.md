@@ -20,6 +20,8 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
+# v7: v6 + 0.3 x medium specialist (stage-1 LightGBM trained on train + slowed copies of easy motifs)
+./venv/bin/python -m src.specialist --base v6_9fam_stack_aux --weight 0.3 --name v7_v6_plus_spec
 # v6: v3 + auxiliary stage-1 targets (is-relay, is-any-planted-motif) pooled in stage 2
 ./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --aux --name v6_9fam_stack_aux
 # v4: v3 + transductive self-training of stage 2 on the test week (2 rounds; site 72.2, not better)
@@ -68,7 +70,8 @@ training target and for grouping CV folds, never as features. No external data i
 | v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 (site 72.2) |
 | v3: v2b + cycles family (nested CV) | 62.0 (site 72.3) |
 | v4: v3 + stage-2 self-training on the test week | stage-1 CV simulation +1.0 (2 seeds); site 72.2 |
-| v6: v3 + auxiliary relay/motif targets (targets only, never features) | site: teammate's 8-family run 72.6 |
+| v6: v3 + auxiliary relay/motif targets (targets only, never features) | site 73.0 |
+| v7: v6 + 0.3 x medium specialist (slowed-easy augmentation) | stage-1 CV 59.8 -> 61.9, medium AP 6.4 -> 10.4 |
 
 ## Not written by us
 
