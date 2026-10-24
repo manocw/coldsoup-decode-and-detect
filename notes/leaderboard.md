@@ -11,6 +11,8 @@
 | 2026-10-24 | v6_9fam_stack_aux | 62.1 (nested) | 73.0 | | v3 + aux (teammate) |
 | 2026-10-24 | v7_10fam_tempo_aux | 62.4 (nested) | **73.8** | P@1% 94%, R@1% 30%; easy 50%, medium 10%, hard 0%, amb 0% | v6 + tempo family; final |
 | 2026-10-24 | v8_9fam_aux_medium | 62.3 (nested) | - | - | v6 + medium helper target; medium AP 8.8 vs 9.1, rejected |
+| 2026-10-24 | v4_9fam_stack_selftrain | - | 72.2 (ROC AUC 0.95) | P@1% 94%, R@1% 30%; easy 40%, medium 10% | v3 + stage-2 self-training: no gain |
+| 2026-10-24 | v6_9fam_stack_aux | - | **73.0** (ROC AUC 0.95) | P@1% 94%, R@1% 30%; easy 50%, medium 0%, hard 0% | v3 + auxiliary relay/motif targets |
 
 Reading the site's breakdown: top 1% = ~401 tx, so at most ~32% of the 1,250 positives fit; 40% easy +
 10% medium ~= 342 hits -> top-1% precision ~0.85. Site score > CV: test seems at least as easy as train for

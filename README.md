@@ -30,6 +30,9 @@ F="starter funding relays fields motifs hops amounts history"
 # final - v7: v6 + the tempo family (site 73.8)
 ./venv/bin/python -m src.predict --features $F cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux
 # v6: v3 + auxiliary stage-1 targets (is-relay, is-any-planted-motif) pooled in stage 2 (site 73.0)
+# v7: v6 + 0.3 x medium specialist (stage-1 LightGBM trained on train + slowed copies of easy motifs)
+./venv/bin/python -m src.specialist --base v6_9fam_stack_aux --weight 0.3 --name v7_v6_plus_spec
+# v6: v3 + auxiliary stage-1 targets (is-relay, is-any-planted-motif) pooled in stage 2
 ./venv/bin/python -m src.predict --features $F cycles --seeds 3 --stack --aux --name v6_9fam_stack_aux
 # v2c: 8 families + auxiliary targets (site 72.6)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --stack --aux --name v2c_8fam_stack_aux
@@ -93,6 +96,8 @@ behavioural features; their out-of-fold scores feed stage 2. At test time nothin
 | v6: v3 + auxiliary relay/motif targets (targets only, never features) | 62.1 (site 73.0) |
 | **v7: v6 + tempo family (final)** | **62.4 (site 73.8)** |
 | v8: v6 + a third helper target "medium suspicious" (`--aux-targets relay motif medium`) | 62.3, medium AP 8.8 vs 9.1: rejected |
+| v6: v3 + auxiliary relay/motif targets (targets only, never features) | site 73.0 |
+| v7: v6 + 0.3 x medium specialist (slowed-easy augmentation) | stage-1 CV 59.8 -> 61.9, medium AP 6.4 -> 10.4 |
 
 ## Not written by us
 
