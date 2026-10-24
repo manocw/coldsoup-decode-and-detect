@@ -16,7 +16,7 @@ targets only, never features) whose neighbour-pooled scores also feed stage 2.
 - Team: coldsoup
 - Captain: TODO_CAPTAIN
 - Members: TODO_MEMBERS
-- Final submission: `v7_10fam_tempo_aux` (site score 73.8). Report: `docs/report.pdf` (source `docs/report.html`).
+- Final submission: `b1_rank_v7_v12` (site score 74.0), a rank average of v7 (site 73.8) and v12 (site 73.5). Report: `docs/report.pdf` (source `docs/report.html`).
 
 ## Reproduce the predictions
 
@@ -27,7 +27,12 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
-# final - v7: v6 + the tempo family (site 73.8)
+# final - b1 (site 74.0): rank average of v7 and v12, half each (~20 min on CPU)
+./venv/bin/python -m src.predict --features $F cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux
+./venv/bin/python -m src.predict --features $F cycles tempo medium --seeds 3 --stack --aux --name v11_11fam_tempo_medium_aux
+./venv/bin/python -m src.specialist --base v11_11fam_tempo_medium_aux --weight 0.3 --name v12_v11_plus_spec
+./venv/bin/python -m src.blend submissions/v7_10fam_tempo_aux.csv submissions/v12_v11_plus_spec.csv --weights 0.5 0.5 --name b1_rank_v7_v12
+# v7: v6 + the tempo family (site 73.8)
 ./venv/bin/python -m src.predict --features $F cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux
 # v6: v3 + auxiliary stage-1 targets (is-relay, is-any-planted-motif) pooled in stage 2 (site 73.0)
 # v7: v6 + 0.3 x medium specialist (stage-1 LightGBM trained on train + slowed copies of easy motifs)
@@ -94,8 +99,14 @@ behavioural features; their out-of-fold scores feed stage 2. At test time nothin
 | v3: v2b + cycles family (nested CV) | 62.0 (site 72.3) |
 | v4: v3 + stage-2 self-training on the test week | stage-1 CV simulation +1.0 (2 seeds); site 72.2 |
 | v6: v3 + auxiliary relay/motif targets (targets only, never features) | 62.1 (site 73.0) |
-| **v7: v6 + tempo family (final)** | **62.4 (site 73.8)** |
+| v7: v6 + tempo family | 62.4 (site 73.8) |
 | v8: v6 + a third helper target "medium suspicious" (`--aux-targets relay motif medium`) | 62.3, medium AP 8.8 vs 9.1: rejected |
+| v9: v7 + medium helper target | site 73.3 |
+| v10: v7 + 0.3 x medium specialist (`src.specialist`) | site 73.2 |
+| v11: v7 + medium feature family | site 73.3 |
+| v12: v11 + 0.3 x medium specialist | site 73.5 |
+| **b1: rank average 0.5 v7 + 0.5 v12 (final)** | **site 74.0** |
+| b2: rank average 0.5 v7 + 0.25 v12 + 0.25 v6 | site 73.8 |
 | v6: v3 + auxiliary relay/motif targets (targets only, never features) | site 73.0 |
 | v7: v6 + 0.3 x medium specialist (slowed-easy augmentation) | stage-1 CV 59.8 -> 61.9, medium AP 6.4 -> 10.4 |
 

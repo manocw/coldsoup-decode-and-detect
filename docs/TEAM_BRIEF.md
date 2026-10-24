@@ -12,7 +12,7 @@ results, interesting findings, limitations. Sections 2-8 map onto those.
 
 | Required item | Where it is / status |
 |---|---|
-| Test predictions CSV | `submissions/<run>.csv` (final: `v7_10fam_tempo_aux.csv`, site score 73.8; v6 73.0, v2c 72.6) |
+| Test predictions CSV | `submissions/<run>.csv` (final: `b1_rank_v7_v12.csv`, site score 74.0 = rank average of v7 73.8 and v12 73.5) |
 | Validation results | Section 6 below + `notes/leaderboard.md`; CV printed by `src.predict --cv` |
 | Code | `src/` (built into `submissions/code.zip` by `python -m src.package`) |
 | Model details / settings | Section 4 below; exact settings in `src/evaluate.py:make_model` |
@@ -97,7 +97,7 @@ addresses, no absolute dates, no labels), because wallets/issuers/dates all chan
 | amounts | "Just under limits" | value relationships to adjacent payments (pass-on ratios); static amount tests were null |
 | cycles (experimental, not in v2) | round trips | time-respecting paths back to the sender, cycle length/duration/value drift |
 | history (v2) | wallet history | pair regularity, wallet roles, deviation from the wallet's own history |
-| tempo (v7, final) | motif pace | pace of the payment's one-off-pair group (min/median step, regularity, 12-45 min "slow band") and value-rising vs value-losing hand-offs |
+| tempo (v7) | motif pace | pace of the payment's one-off-pair group (min/median step, regularity, 12-45 min "slow band") and value-rising vs value-losing hand-offs |
 
 ## 5. Model
 
@@ -112,7 +112,7 @@ addresses, no absolute dates, no labels), because wallets/issuers/dates all chan
   LightGBM with the same settings is trained on these plus the original features. To avoid leakage
   it learns from out-of-fold stage-1 scores, and its CV is nested (inner folds inside each outer fold).
   Runtime ~4 min on a laptop CPU (21 LightGBM fits for 3 seeds).
-- Auxiliary helper targets (`--aux`, from v2c; part of v6 and the final v7): stage 1 also trains two helper models on annotation
+- Auxiliary helper targets (`--aux`, from v2c; part of v6, v7 and v11): stage 1 also trains two helper models on annotation
   targets, "part of a relay cohort" (`cohort_id`, ~20k positives) and "part of a planted non-relay
   scenario, suspicious or look-alike" (`scenario_id`, excluding `family` = ambiguous, ~2k positives).
   Their out-of-fold scores get the same neighbour pooling and feed stage 2. Annotations are targets
@@ -138,7 +138,10 @@ motif between train and test folds. Metric = the site's AP, plus AP restricted t
 | v2c: v2b + auxiliary relay/motif helper targets (nested CV) | 62.3 | 78.8 | 8.5 | 1.2 | 72.6 (P@1% 93%, R@1% 30%) |
 | v3: v2b + cycles family (nested CV) | 62.0 | 79.9 | 6.5 | 1.2 | 72.3 (P@1% 94%, R@1% 30%) |
 | v6: v3 + auxiliary relay/motif targets | 62.1 | 77.9 | 9.1 | 1.2 | 73.0 |
-| v7: v6 + tempo family (final) | 62.4 | 78.4 | 9.2 | 1.2 | **73.8** (P@1% 94%, R@1% 30%; medium 10% in top 1%) |
+| v7: v6 + tempo family | 62.4 | 78.4 | 9.2 | 1.2 | 73.8 (P@1% 94%, R@1% 30%; medium 10% in top 1%) |
+| v11: v7 + medium feature family | | | | | 73.3 |
+| v12: v11 + 0.3 x medium specialist | | | | | 73.5 |
+| b1: rank average 0.5 v7 + 0.5 v12 (final) | | | | | **74.0** |
 | v8: v6 + "medium suspicious" helper target | 62.3 | 78.3 | 8.8 | 1.2 | - (rejected on CV) |
 
 Hyperparameters barely matter (1-seed CV AP, 8 families incl. history): default 60.1, 15 leaves /
@@ -206,7 +209,11 @@ the top 1%, at most 32% of all 1,250 positives can appear there, so ~342 hits me
 | Auxiliary training targets in stage 2 (is-relay, is-any-planted-motif; targets only, never features) | teammate run on 8 families: site 72.6 (+0.4 over v2b), CV medium AP 8.5 vs 6.3; v6 = this on 9 families |
 | Upstream "taint" (share of a wallet's incoming value that came from other suspicious payments, 6h-week) | null: AUC 0.37-0.53 for hard relays and medium; "planted historical patterns" are not inherited dirty money |
 | More scenario statistics for medium (gap regularity, minimum gap, amount drift, round/identical amounts, decimals, assets, hour, fee, same-ledger steps) | only "never a fast step" (min gap, AUC 0.71) and regular pacing (0.62); rest at chance |
-| Tempo family (group pace, slow band, value-rising hand-offs) on top of v6 | v7: CV +0.4 (noise), site **73.0 -> 73.8**, medium in the top 1% 0% (v2c) -> 10%; final model |
+| Tempo family (group pace, slow band, value-rising hand-offs) on top of v6 | v7: CV +0.4 (noise), site **73.0 -> 73.8**, medium in the top 1% 0% (v2c) -> 10% |
+| Medium specialist (teammate: stage 1 on train + slowed copies of easy motifs) added at 0.3 | on v7 73.2 (worse), on v11 73.5 |
+| Medium feature family (hub-burst amount roughness, gap regularity, butterflies) on top of v7 | v11 73.3 (worse alone) |
+| Medium helper target on top of v7 | v9 73.3 (worse) |
+| Rank averaging v7 with v12 (two strong, partly different models) | **74.0**, final; adding v6 to the blend 73.8 |
 | Third helper target "medium suspicious" (225 positives, `difficulty` as a target only) | v8: CV 62.3 vs 62.1, medium AP 8.8 vs 9.1: no gain, rejected |
 
 **Literature check (web research, 3 angles).** The typology set matches IBM AMLSim / AMLworld (fan-in/out,

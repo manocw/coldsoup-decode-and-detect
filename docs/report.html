@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <title>Decode & Detect - team coldsoup</title>
 <style>
-  @page { size: A4; margin: 15mm 15mm 14mm 15mm; }
-  body { font-family: "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.6pt; line-height: 1.36;
+  @page { size: A4; margin: 12mm 13mm 12mm 13mm; }
+  body { font-family: "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.2pt; line-height: 1.32;
          color: #1a1a1a; background: #fff; margin: 0; }
   h1 { font-size: 17pt; margin: 0 0 2pt; }
-  h2 { font-size: 11.5pt; margin: 10pt 0 3pt; border-bottom: 1px solid #bbb; padding-bottom: 1pt; }
+  h2 { font-size: 11pt; margin: 8pt 0 3pt; border-bottom: 1px solid #bbb; padding-bottom: 1pt; }
   h3 { font-size: 10pt; margin: 6pt 0 2pt; }
   p { margin: 3pt 0; }
   ul, ol { margin: 2pt 0 2pt 15pt; padding: 0; }
   li { margin: 1pt 0; }
-  table { border-collapse: collapse; width: 100%; margin: 4pt 0; font-size: 8.8pt; }
+  table { border-collapse: collapse; width: 100%; margin: 4pt 0; font-size: 8.4pt; }
   th, td { border: 1px solid #ccc; padding: 2pt 4pt; text-align: left; vertical-align: top; }
   th { background: #f0f0f0; }
   td.n, th.n { text-align: right; white-space: nowrap; }
@@ -36,9 +36,10 @@
   <tr><td><b>Captain</b></td><td>TODO_CAPTAIN</td></tr>
   <tr><td><b>Members</b></td><td>TODO_MEMBERS</td></tr>
   <tr><td><b>Code</b></td><td>github.com/manocw/xrpl_hackathon (branch <code>two-stage-model</code>);
-      submitted ZIP built from commit <code>TODO_COMMIT</code></td></tr>
-  <tr><td><b>Final submission</b></td><td><code>v7_10fam_tempo_aux</code>: site score <b>73.8</b>
-      (100 &times; AP on the test week); grouped CV AP on train 62.4</td></tr>
+      submitted ZIP built from the final commit of our <code>main</code> (hash given with the submission)</td></tr>
+  <tr><td><b>Final submission</b></td><td><code>b1_rank_v7_v12</code>: site score <b>74.0</b>
+      (100 &times; AP on the test week); rank average of two two-stage models, v7 (site 73.8, grouped CV 62.4)
+      and v12 (site 73.5)</td></tr>
 </table>
 
 <div class="key">
@@ -48,7 +49,8 @@ the payment is part of a fast multi-hop trail or cycle, whether a sender-receive
 whether a hub behaves like a scheduled legitimate relay, how the wallet's behaviour deviates from its own
 history, and the pace of the motif the payment belongs to. A second stage lets each payment borrow the first-stage scores of payments linked to it in
 time, including two helper models that learn what relays and planted motifs look like. The model goes
-from the organiser baseline's 29.9 grouped-CV AP to 62.4, and scores 73.8 on the test week. Easy motifs are essentially solved; medium and hard cases sit close to an information limit
+from the organiser baseline's 29.9 grouped-CV AP to 62.4 and scores 73.8 on the test week; averaging its
+ranking with a variant built for medium cases gives our final 74.0. Easy motifs are essentially solved; medium and hard cases sit close to an information limit
 that we measured directly.
 </div>
 
@@ -87,7 +89,7 @@ produced the findings the whole design rests on:</p>
  -> stage 1: LightGBM on train labels
  -> stage 1 helpers: LightGBM on auxiliary targets (relay cohort, planted motif); targets only
  -> stage 2: LightGBM re-scores each payment from its linked neighbours' out-of-fold stage-1 scores
- -> test scores, min-max scaled to [0, 1]</pre>
+ -> final: rank average of v7 and v12 (v7 + medium family + medium specialist), scaled to [0, 1]</pre>
 <p>Design rules: features are relative to the wallet and to the split (ratios, ranks, gaps, recurrence),
 never addresses, absolute dates or labels. Using the whole unlabelled week of the same split as context
 is allowed by the rules and is what makes the hard, long-history cases visible at all.</p>
@@ -104,6 +106,7 @@ is allowed by the rules and is what makes the hard, long-history cases visible a
 <tr><td>history</td><td>Pair regularity, wallet roles, deviation from the wallet's own week</td><td class="n">49.3</td></tr>
 <tr><td>amounts</td><td>Value relations to adjacent payments (pass-on ratios); static amount tests were null</td><td class="n">48.0</td></tr>
 <tr><td>cycles</td><td>Time-respecting paths back to the sender: cycle length, duration, value drift</td><td class="n">45.7</td></tr>
+<tr><td>medium (v12 only)</td><td>Bursts of rarely used pairs per hub: amount roughness (random order vs the smooth sequences of look-alike fans), gap regularity, one-off "butterflies" (stack width)</td><td class="n">-</td></tr>
 <tr><td>tempo</td><td>Pace of the payment's one-off-pair group (min/median step, regularity, a 12-45 min "slow band") and whether value rises or falls at each hand-off. Medium motifs are slower than look-alikes (median step 17.8 vs 9.5 min); look-alikes lose value at every hop</td><td class="n">-</td></tr>
 </table>
 
@@ -125,6 +128,10 @@ is allowed by the rules and is what makes the hard, long-history cases visible a
   the <code>cohort_id</code>, <code>scenario_id</code> and <code>family</code> annotations in
   <code>train/labels.csv</code>. They are used as training targets only, never as features; at test time
   nothing from <code>labels.csv</code> is needed.</li>
+  <li><b>Final blend:</b> v12 adds the medium family and a teammate's <i>medium specialist</i> (a stage-1 LightGBM
+  trained on train plus copies of the easy motifs re-timed to medium pace, added at weight 0.3). Alone it
+  scores 73.5; averaging its ranking with v7 (half each) scores 74.0. Rank averaging is reproducible with
+  <code>src/blend.py</code>.</li>
   <li>CPU only: ~4 min on a laptop (21 LightGBM fits), peak memory ~1.9 GB. No GPU, external services,
   pre-trained models or LLMs at runtime.</li>
 </ul>
@@ -149,7 +156,9 @@ positives against all negatives). Hyperparameters were checked but barely matter
 <tr><td>v2c: v2b + auxiliary relay/motif helper targets</td><td class="n">62.3</td><td class="n">78.8</td><td class="n">8.5</td><td class="n">1.2</td><td class="n">72.6</td></tr>
 <tr><td>v3: v2b + cycles family</td><td class="n">62.0</td><td class="n">79.9</td><td class="n">6.5</td><td class="n">1.2</td><td class="n">72.3</td></tr>
 <tr><td>v6: v3 + auxiliary helper targets (9 families)</td><td class="n">62.1</td><td class="n">77.9</td><td class="n">9.1</td><td class="n">1.2</td><td class="n">73.0</td></tr>
-<tr><td><b>v7: v6 + tempo family (final)</b></td><td class="n"><b>62.4</b></td><td class="n">78.4</td><td class="n">9.2</td><td class="n">1.2</td><td class="n"><b>73.8</b></td></tr>
+<tr><td>v7: v6 + tempo family</td><td class="n">62.4</td><td class="n">78.4</td><td class="n">9.2</td><td class="n">1.2</td><td class="n">73.8</td></tr>
+<tr><td>v12: v7 + medium family + 0.3 &times; medium specialist</td><td></td><td></td><td></td><td></td><td class="n">73.5</td></tr>
+<tr><td><b>b1: rank average of v7 and v12 (final)</b></td><td></td><td></td><td></td><td></td><td class="n"><b>74.0</b></td></tr>
 </table>
 <p>On the test week, v7's top 1% (~401 payments) is 94% precise and holds 30% of all positives: ~50% of easy
 and ~10% of medium positives (v2c: 0% medium), none of the hard ones. Only ~32% of positives can fit in the
@@ -199,7 +208,9 @@ a week with new wallets, new issuers and more currency conversions.</p>
     <td>No excess mass under any threshold; amounts top out ~4.6k USD. Only relations to adjacent payments (pass-on ratios) carry signal.</td></tr>
 <tr><td>Hour-of-day profiles</td><td>Null</td><td>Motifs are uniform in time; the useful version is "network load around the payment".</td></tr>
 <tr><td>Mule-wallet reuse across scenarios</td><td>Null</td><td>Wallets in medium/hard scenarios are no more linked to other suspicious scenarios than look-alike wallets (6.9% vs 6.6%).</td></tr>
-<tr><td>A third helper target "medium suspicious" (225 positives)</td><td>CV 62.3 vs 62.1; medium AP 8.8 vs 9.1</td><td>Too few medium positives for a separate scorer; tempo carries the pace signal better.</td></tr>
+<tr><td>A third helper target "medium suspicious" (225 positives)</td><td>CV 62.3 vs 62.1; on v7: site 73.3 vs 73.8</td><td>Too few medium positives for a separate scorer; tempo carries the pace signal better.</td></tr>
+<tr><td>Medium specialist or medium family added to v7 on their own</td><td>Site 73.2 / 73.3 vs 73.8</td><td>Each lifts slow look-alikes as well; only as one half of a rank average do they help (74.0).</td></tr>
+<tr><td>Adding v6 to the final rank average</td><td>Site 73.8 vs 74.0</td><td>v6 is already inside v7.</td></tr>
 <tr><td>Self-training stage 2 on the test week (top 1.5% / bottom 50%, 2 rounds)</td><td>Site 72.2 vs v3 72.3</td><td>Reinforces the easy cases the model already ranks well.</td></tr>
 <tr><td>Graph neural network on the transaction graph (Colab)</td><td>AP 49.2 vs LightGBM 63.6 on a quarter week</td><td>Trees on engineered features win at this data size; +0.7 only as a 10% blend.</td></tr>
 <tr><td>Motif context: funding before, cash-out after, common funder or destination</td><td>AUC 0.45-0.56 with true groupings</td><td>The generator plants motifs with no surrounding laundering structure.</td></tr>
@@ -233,7 +244,10 @@ a week with new wallets, new issuers and more currency conversions.</p>
 <p>Python 3.14, CPU only. Put the organiser data under <code>data/train/</code> and <code>data/test/</code>, then:</p>
 <pre>python -m venv venv &amp;&amp; ./venv/bin/pip install -r requirements.txt
 ./venv/bin/python -m src.predict --features starter funding relays fields motifs hops amounts history \
-    cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux   # -> submissions/v7_10fam_tempo_aux.csv</pre>
+    cycles tempo --seeds 3 --stack --aux --name v7_10fam_tempo_aux
+./venv/bin/python -m src.predict --features starter funding relays fields motifs hops amounts history     cycles tempo medium --seeds 3 --stack --aux --name v11_11fam_tempo_medium_aux
+./venv/bin/python -m src.specialist --base v11_11fam_tempo_medium_aux --weight 0.3 --name v12_v11_plus_spec
+./venv/bin/python -m src.blend submissions/v7_10fam_tempo_aux.csv submissions/v12_v11_plus_spec.csv     --weights 0.5 0.5 --name b1_rank_v7_v12           # -> submissions/b1_rank_v7_v12.csv, ~20 min</pre>
 <p>Add <code>--cv</code> for the nested grouped CV report. Libraries: pandas, numpy, pyarrow, scikit-learn,
 LightGBM, networkx, scipy. Labels and annotation metadata are used only as training targets (main and helper
 models) and for CV grouping, never as features; no external data. The code was written with AI assistance (Claude Code) under the team's direction and

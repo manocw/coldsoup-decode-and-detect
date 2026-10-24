@@ -9,8 +9,14 @@
 | 2026-10-24 | v2c_8fam_stack_aux | 62.3 (nested) | 72.6 | P@1% 93%, R@1% 30%; easy 50%, medium 0%, hard 0%, amb 0% | v2b + auxiliary relay/motif helper targets (--aux) |
 | 2026-10-24 | v2d_8fam_stack_pw2 | 60.5 (nested) | - | - | v2b + scale_pos_weight 2; rejected on CV |
 | 2026-10-24 | v6_9fam_stack_aux | 62.1 (nested) | 73.0 | | v3 + aux (teammate) |
-| 2026-10-24 | v7_10fam_tempo_aux | 62.4 (nested) | **73.8** | P@1% 94%, R@1% 30%; easy 50%, medium 10%, hard 0%, amb 0% | v6 + tempo family; final |
+| 2026-10-24 | v7_10fam_tempo_aux | 62.4 (nested) | **73.8** | P@1% 94%, R@1% 30%; easy 50%, medium 10%, hard 0%, amb 0% | v6 + tempo family |
 | 2026-10-24 | v8_9fam_aux_medium | 62.3 (nested) | - | - | v6 + medium helper target; medium AP 8.8 vs 9.1, rejected |
+| 2026-10-24 | v9_10fam_tempo_aux_medium | - | 73.3 | - | v7 + medium helper target; worse than v7, dropped |
+| 2026-10-24 | v10_tempo_plus_spec | - | 73.2 | - | v7 + 0.3 x medium specialist (src.specialist); w15 / w50 variants built |
+| 2026-10-24 | v11_11fam_tempo_medium_aux | - | 73.3 | - | v7 + medium feature family (hub-burst amount roughness, gap regularity, butterflies) |
+| 2026-10-24 | v12_v11_plus_spec | - | 73.5 | - | v11 + 0.3 x medium specialist |
+| 2026-10-24 | b1_rank_v7_v12 | - | **74.0** | - | rank average 0.5 v7 + 0.5 v12 (src.blend); final |
+| 2026-10-24 | b2_rank_v7_v12_v6 | - | 73.8 | - | rank average 0.5 v7 + 0.25 v12 + 0.25 v6 |
 | 2026-10-24 | v4_9fam_stack_selftrain | - | 72.2 (ROC AUC 0.95) | P@1% 94%, R@1% 30%; easy 40%, medium 10% | v3 + stage-2 self-training: no gain |
 | 2026-10-24 | v6_9fam_stack_aux | - | **73.0** (ROC AUC 0.95) | P@1% 94%, R@1% 30%; easy 50%, medium 0%, hard 0% | v3 + auxiliary relay/motif targets |
 
