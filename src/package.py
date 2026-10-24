@@ -25,17 +25,11 @@ def submission_info(predictions):
                                 text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         commit = "unknown"
-    return (f"Team: coldsoup
-Captain: Manolo Chow
-"
-            f"Members: Manolo Chow (captain), Marat Sagdiiev, Tomas Balnionis
-"
-            f"Version: git commit {commit}
-Predictions: submissions/{predictions}.csv
-"
-            f"Report: docs/report.pdf
-Run instructions, model details and validation results: README.md
-")
+    lines = ["Team: coldsoup", "Captain: Manolo Chow",
+             "Members: Manolo Chow (captain), Marat Sagdiiev, Tomas Balnionis",
+             f"Version: git commit {commit}", f"Predictions: submissions/{predictions}.csv",
+             "Report: docs/report.pdf", "Run instructions, model details and validation results: README.md"]
+    return "\n".join(lines) + "\n"
 
 
 def main():
