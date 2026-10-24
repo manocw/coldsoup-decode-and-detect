@@ -18,7 +18,7 @@ results, interesting findings, limitations. Sections 2-8 map onto those.
 | Model details / settings | Section 4 below; exact settings in `src/evaluate.py:make_model` |
 | Run instructions | `README.md` (exact command, ~1-2 min on a laptop CPU, no external services) |
 | Slides or report | `docs/report.pdf` (4 pages, source `docs/report.html`) |
-| Team details | README `## Team` and report header: coldsoup, captain TODO_CAPTAIN, members TODO_MEMBERS |
+| Team details | README `## Team` and report header: coldsoup, captain Manolo Chow, members Manolo Chow (captain), Marat Sagdiiev, Tomas Balnionis |
 
 No prompts/LLMs are used in the model itself, so there is no prompt set. AI assistance (Claude Code)
 was used to write the code; this is declared in the README.

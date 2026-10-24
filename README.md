@@ -14,8 +14,8 @@ targets only, never features) whose neighbour-pooled scores also feed stage 2.
 ## Team
 
 - Team: coldsoup
-- Captain: TODO_CAPTAIN
-- Members: TODO_MEMBERS
+- Captain: Manolo Chow
+- Members: Manolo Chow (captain), Marat Sagdiiev, Tomas Balnionis
 - Final submission: `b1_rank_v7_v12` (site score 74.0), a rank average of v7 (site 73.8) and v12 (site 73.5). Report: `docs/report.pdf` (source `docs/report.html`).
 
 ## Reproduce the predictions
