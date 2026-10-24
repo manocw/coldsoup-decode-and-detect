@@ -13,7 +13,7 @@ close in time, hand-offs, one-off-pair motif groups), trained on out-of-fold fir
 - Team: coldsoup
 - Captain: TODO_CAPTAIN
 - Members: TODO_MEMBERS
-- Final submission: `v2b_8fam_stack` (site score 72.2). Report: `docs/report.pdf` (source `docs/report.html`).
+- Final submission: `v2c_8fam_stack_aux` (site score 72.6). Report: `docs/report.pdf` (source `docs/report.html`).
 
 ## Reproduce the predictions
 
@@ -24,7 +24,9 @@ python -m venv venv && ./venv/bin/pip install -r requirements.txt
 # put the organiser data under data/: data/train/ (with labels.csv) and data/test/
 # (unzip the test download into data/test/)
 F="starter funding relays fields motifs hops amounts history"
-# two-stage model (v2b)
+# final: two-stage model with auxiliary relay/motif helper targets (v2c, site 72.6)
+./venv/bin/python -m src.predict --features $F --seeds 3 --stack --aux --name v2c_8fam_stack_aux
+# two-stage model without helpers (v2b, site 72.2)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --stack --name v2b_8fam_stack
 # single-stage model (v2a)
 ./venv/bin/python -m src.predict --features $F --seeds 3 --name v2a_8fam
@@ -32,7 +34,8 @@ F="starter funding relays fields motifs hops amounts history"
 # -> submissions/<name>.csv  (TRANSACTION_HASH,score; 40,101 rows)
 ```
 
-Runtime on a 14-core laptop CPU: single-stage ~45 s, two-stage ~4 min (21 LightGBM fits);
+Runtime on a 14-core laptop CPU: single-stage ~45 s, two-stage ~4 min (21 LightGBM fits),
+two-stage with `--aux` ~4.5 min (57 fits; re-run on a second machine gave identical scores);
 peak memory 1.4 / 1.9 GB. Feature building takes < 20 s per split per family and is cached under
 `cache/`. Add `--cv` to also print the grouped cross-validation report on train (nested CV for
 `--stack`, ~5 min). `src/features/cycles.py` and `groups.py` are experimental families not used
@@ -40,7 +43,7 @@ by these runs.
 
 On Windows, if Application Control blocks pyarrow's parquet DLL ("DLL load failed while importing
 _parquet"), `pip install fastparquet` and run with that engine:
-`python -c "import sys,runpy,pandas as pd; pd.set_option('io.parquet.engine','fastparquet'); sys.argv=['src.predict',*sys.argv[1:]]; runpy.run_module('src.predict',run_name='__main__')" --features $F --seeds 3 --stack --name v2b_8fam_stack`
+`python -c "import sys,runpy,pandas as pd; pd.set_option('io.parquet.engine','fastparquet'); sys.argv=['src.predict',*sys.argv[1:]]; runpy.run_module('src.predict',run_name='__main__')" --features $F --seeds 3 --stack --aux --name v2c_8fam_stack_aux`
 
 ## Layout
 
@@ -54,8 +57,13 @@ _parquet"), `pip install fastparquet` and run with that engine:
 | `src/stack.py` | Stage 2: neighbour score sharing, nested CV |
 | `src/package.py` | Builds this code ZIP |
 
-Labels (`is_suspicious`, `family`, `difficulty`, `scenario_id`, `cohort_id`) are used only as the
-training target and for grouping CV folds, never as features. No external data is used.
+Labels (`is_suspicious`, `family`, `difficulty`, `scenario_id`, `cohort_id`) are used only as
+training targets and for grouping CV folds, never as features. No external data is used.
+Annotation columns (`family`, `cohort_id`, `scenario_id`) are used as auxiliary training targets
+only, never as features: two stage-1 helper models learn "is this payment part of a relay cohort"
+and "is it part of a planted non-relay scenario (suspicious or legitimate look-alike)" from the
+behavioural features; their out-of-fold scores feed stage 2. At test time nothing from
+`labels.csv` is needed.
 
 ## Validation (grouped 5-fold CV on train)
 
@@ -65,7 +73,8 @@ training target and for grouping CV folds, never as features. No external data i
 | Starter features + LightGBM | 33.7 |
 | v1: 7 feature families + LightGBM | 59.4 (site 71.0) |
 | v2a: + wallet history (8 families) | 60.1 |
-| v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 |
+| v2b: v2a + stage-2 neighbour score sharing (nested CV) | 61.6 (site 72.2) |
+| v2c: v2b + auxiliary relay/motif helper targets (nested CV) | 62.3 (site 72.6) |
 
 ## Not written by us
 

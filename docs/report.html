@@ -37,8 +37,8 @@
   <tr><td><b>Members</b></td><td>TODO_MEMBERS</td></tr>
   <tr><td><b>Code</b></td><td>github.com/manocw/xrpl_hackathon (branch <code>two-stage-model</code>);
       submitted ZIP built from commit <code>TODO_COMMIT</code></td></tr>
-  <tr><td><b>Final submission</b></td><td><code>v2b_8fam_stack</code>: site score <b>72.2</b>
-      (100 &times; AP on the test week); grouped CV AP on train 61.6</td></tr>
+  <tr><td><b>Final submission</b></td><td><code>v2c_8fam_stack_aux</code>: site score <b>72.6</b>
+      (100 &times; AP on the test week); grouped CV AP on train 62.3</td></tr>
 </table>
 
 <div class="key">
@@ -47,8 +47,8 @@ computed from the whole week of the payment's own split: who funded the sender a
 the payment is part of a fast multi-hop trail, whether a sender-receiver pair is a one-off, whether a
 hub behaves like a scheduled legitimate relay, and how the wallet's behaviour deviates from its own
 history. A second stage lets each payment borrow the first-stage scores of payments linked to it in
-time. The model goes from the organiser baseline's 29.9 grouped-CV AP to 61.6, and scores 72.2 on the
-test week. Easy motifs are essentially solved; medium and hard cases sit close to an information limit
+time, including two helper models that learn what relays and planted motifs look like. The model goes
+from the organiser baseline's 29.9 grouped-CV AP to 62.3, and scores 72.6 on the test week. Easy motifs are essentially solved; medium and hard cases sit close to an information limit
 that we measured directly.
 </div>
 
@@ -85,6 +85,7 @@ produced the findings the whole design rests on:</p>
  -> one row per payment: sender cost (first leg), delivered value, USD at the hourly rate
  -> 8 feature families, each computed on one split's unlabelled week only (cached)
  -> stage 1: LightGBM on train labels
+ -> stage 1 helpers: LightGBM on auxiliary targets (relay cohort, planted motif); targets only
  -> stage 2: LightGBM re-scores each payment from its linked neighbours' out-of-fold stage-1 scores
  -> test scores, min-max scaled to [0, 1]</pre>
 <p>Design rules: features are relative to the wallet and to the split (ratios, ranks, gaps, recurrence),
@@ -114,6 +115,14 @@ is allowed by the rules and is what makes the hard, long-history cases visible a
   (links within 2, 10, 30 min). A second LightGBM with the same settings uses these plus the stage-1 features.
   It is trained on <i>out-of-fold</i> stage-1 scores, and its CV is nested, so no payment ever sees a score
   produced by a model that saw its label.</li>
+  <li><b>Auxiliary helper targets (final model):</b> stage 1 also trains two helper LightGBMs on the same
+  behavioural features: "is this payment part of a relay cohort?" (~20k positives) and "is it part of a
+  planted non-relay scenario, suspicious or legitimate look-alike?" (~2k positives). Their out-of-fold scores
+  get the same neighbour pooling and feed stage 2, which can then tell "a structure" apart from "a bad
+  structure" with far more examples than the 1,250 suspicious labels. <b>Disclosure:</b> the targets come from
+  the <code>cohort_id</code>, <code>scenario_id</code> and <code>family</code> annotations in
+  <code>train/labels.csv</code>. They are used as training targets only, never as features; at test time
+  nothing from <code>labels.csv</code> is needed.</li>
   <li>CPU only: ~4 min on a laptop (21 LightGBM fits), peak memory ~1.9 GB. No GPU, external services,
   pre-trained models or LLMs at runtime.</li>
 </ul>
@@ -134,12 +143,15 @@ positives against all negatives). Hyperparameters were checked but barely matter
 <tr><td>Starter features + LightGBM</td><td class="n">33.7</td><td class="n">44.5</td><td class="n">1.4</td><td class="n">0.9</td><td></td></tr>
 <tr><td>v1: 7 families + LightGBM</td><td class="n">59.4</td><td class="n">76.7</td><td class="n">6.0</td><td class="n">1.1</td><td class="n">71.0</td></tr>
 <tr><td>v2a: 8 families (+ history)</td><td class="n">60.1</td><td class="n">77.3</td><td class="n">6.4</td><td class="n">1.1</td><td class="n">71.3</td></tr>
-<tr><td><b>v2b: v2a + stage-2 score sharing (nested CV)</b></td><td class="n"><b>61.6</b></td><td class="n">79.6</td><td class="n">6.3</td><td class="n">1.2</td><td class="n"><b>72.2</b></td></tr>
+<tr><td>v2b: v2a + stage-2 score sharing (nested CV)</td><td class="n">61.6</td><td class="n">79.6</td><td class="n">6.3</td><td class="n">1.2</td><td class="n">72.2</td></tr>
+<tr><td><b>v2c: v2b + auxiliary relay/motif helper targets (nested CV)</b></td><td class="n"><b>62.3</b></td><td class="n">78.8</td><td class="n">8.5</td><td class="n">1.2</td><td class="n"><b>72.6</b></td></tr>
 </table>
-<p>On the test week, v2b's top 1% (~401 payments) is 94% precise and holds 30% of all positives; the site's
-breakdown shows ~50% of easy positives and ~10% of medium positives there, none of the hard ones. Only
-~32% of positives can fit in the top 1% at all. A re-run of the same code on another machine scored 72.1
-(library-version noise). The site score is above our grouped CV, i.e. the behavioural features transfer to
+<p>On the test week, v2c's top 1% (~401 payments) is 93% precise and holds 30% of all positives (v2b: 94%,
+30%); ~50% of easy positives are there and no hard ones. Only ~32% of positives can fit in the top 1% at
+all. The helpers' gain is deeper in the ranking: v2c and v2b share 1,144 of their top 1,250 payments, and in
+CV the gain is on medium cases (AP 6.3 &rarr; 8.5), which mostly sit beyond the top 1%. A re-run of v2b on
+another machine scored 72.1, and 3- vs 10-seed v2b runs share only 369 of 401 top-1% payments, so
+differences of a few tenths are partly seed noise. The site score is above our grouped CV, i.e. the behavioural features transfer to
 a week with new wallets, new issuers and more currency conversions.</p>
 
 <h2>7. Interesting findings</h2>
@@ -161,6 +173,8 @@ a week with new wallets, new issuers and more currency conversions.</p>
   <li><b>Hard relays likewise.</b> With the true relay scenarios, the only property separating the 12
   suspicious relays from 1,188 legitimate ones is direction (all forwards vs half refills, AUC 0.75); size,
   rounds, counterparties, retention, amounts and conversions are all at AUC ~0.5.</li>
+  <li><b>Learning "structure" separately from "bad" helps medium cases.</b> The relay/motif helper targets lift
+  medium AP from 6.3 to 8.5 in CV, the only change that moved medium at all.</li>
   <li><b>Score sharing helps where motifs are clear.</b> Stage 2 adds +1.5 to +2.3 CV AP, nearly all of it on
   easy cases: once part of a fast motif is found, its siblings follow.</li>
 </ul>
@@ -179,6 +193,7 @@ a week with new wallets, new issuers and more currency conversions.</p>
 <tr><td>Time-respecting cycle family (<code>cycles</code>)</td><td>CV ~45.7 alone; no gain on top</td><td>Cycles are already captured by hops and motifs.</td></tr>
 <tr><td>Reconstructing medium motifs by shared wallets and scoring the group</td><td>No gain</td><td>Grouping bleeds into background traffic: one-off-pair groups are only 58% pure at a 30-min link, 37% at 1 h.</td></tr>
 <tr><td>Hyperparameter tuning (leaves, min samples per leaf)</td><td>59.2-60.3 vs 60.1</td><td>Within seed noise; the limit is information, not capacity.</td></tr>
+<tr><td>Weighting suspicious payments &times;2 (<code>scale_pos_weight</code> 2) in both stages</td><td>CV 60.5 vs 61.6</td><td>AP depends only on ranking; extra weight made stage 2 overfit the positives (medium AP 5.8 vs 6.3).</td></tr>
 <tr><td>Teammate's flow-episode model (site 66.8) in one model with ours, or rank-blended in CV</td><td>CV 60.3 / 60.4 vs 60.1</td>
     <td>Both feature designs capture the same signal.</td></tr>
 <tr><td>Rank blend on test: 0.85 v2b + 0.15 flow-episode model; 0.70 / 0.30</td><td>Site 71.7; 71.2 (v2b 72.2)</td>
@@ -189,7 +204,7 @@ a week with new wallets, new issuers and more currency conversions.</p>
 
 <h2>9. Limitations</h2>
 <ul>
-  <li>Medium cases remain hard (AP ~6) and hard cases near random (AP ~1): slowed-down motifs look like
+  <li>Medium cases remain hard (AP ~8) and hard cases near random (AP ~1): slowed-down motifs look like
   their legitimate look-alikes, and we showed this holds even with perfect grouping.</li>
   <li>25 "ambiguous" hard payments sit inside regular scheduled series with the same amount and period as
   their legitimate siblings: unlearnable by construction.</li>
@@ -198,16 +213,19 @@ a week with new wallets, new issuers and more currency conversions.</p>
   <li>Whole-week per-wallet aggregates could memorise wallets inside train and so inflate CV; wallets are
   disjoint across splits, so this cannot leak into test (and the site score is above CV).</li>
   <li>The data is synthetic: the patterns are the simulator's. Transfer to the real XRPL is untested.</li>
+  <li>Future work: a temporal edge-level graph neural network. Stage 2 is already one hand-built round of
+  message passing; we did not expect a GNN to recover the medium/hard signal that whole-scenario statistics
+  lack, and it needs a GPU we did not have.</li>
 </ul>
 
 <h2>10. Reproducibility</h2>
 <p>Python 3.14, CPU only. Put the organiser data under <code>data/train/</code> and <code>data/test/</code>, then:</p>
 <pre>python -m venv venv &amp;&amp; ./venv/bin/pip install -r requirements.txt
 ./venv/bin/python -m src.predict --features starter funding relays fields motifs hops amounts history \
-    --seeds 3 --stack --name v2b_8fam_stack        # -> submissions/v2b_8fam_stack.csv, ~4 min</pre>
+    --seeds 3 --stack --aux --name v2c_8fam_stack_aux   # -> submissions/v2c_8fam_stack_aux.csv</pre>
 <p>Add <code>--cv</code> for the nested grouped CV report. Libraries: pandas, numpy, pyarrow, scikit-learn,
-LightGBM, networkx, scipy. Labels and annotation metadata are used only as the target and for CV grouping;
-no external data. The code was written with AI assistance (Claude Code) under the team's direction and
+LightGBM, networkx, scipy. Labels and annotation metadata are used only as training targets (main and helper
+models) and for CV grouping, never as features; no external data. The code was written with AI assistance (Claude Code) under the team's direction and
 review; no LLM is part of the model. Licence: MIT.</p>
 
 </body>

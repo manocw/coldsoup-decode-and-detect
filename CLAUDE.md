@@ -26,7 +26,8 @@ Each split: `transactions.parquet`, `transfers.parquet` (1-3 legs per tx), `bloc
   changing counterparties: use aggregate/whole-week account context. Test has "batch variations
   absent from training" - prefer robust behavioural features over memorised routes.
 - `labels.csv` columns `family`, `difficulty`, `scenario_id`, `cohort_id` are annotation
-  metadata: OK for analysis and grouped CV, never as model inputs. Note "normal" difficulty rows
+  metadata: OK for analysis, grouped CV and as auxiliary training targets (the `--aux` stage-1
+  helpers, scored out-of-fold), never as model inputs. Note "normal" difficulty rows
   in a typology family are legitimate look-alikes (hard negatives).
 - Rules: no external labels, organiser files, or test answers; split identity is not a feature.
   Using the unlabelled validation/test transactions for unsupervised context is allowed.

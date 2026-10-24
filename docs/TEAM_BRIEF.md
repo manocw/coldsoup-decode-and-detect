@@ -12,7 +12,7 @@ results, interesting findings, limitations. Sections 2-8 map onto those.
 
 | Required item | Where it is / status |
 |---|---|
-| Test predictions CSV | `submissions/<run>.csv` (best so far: `v2b_8fam_stack.csv`, site score 72.2) |
+| Test predictions CSV | `submissions/<run>.csv` (final: `v2c_8fam_stack_aux.csv`, site score 72.6; previous best `v2b_8fam_stack.csv`, 72.2) |
 | Validation results | Section 6 below + `notes/leaderboard.md`; CV printed by `src.predict --cv` |
 | Code | `src/` (built into `submissions/code.zip` by `python -m src.package`) |
 | Model details / settings | Section 4 below; exact settings in `src/evaluate.py:make_model` |
@@ -111,6 +111,12 @@ addresses, no absolute dates, no labels), because wallets/issuers/dates all chan
   LightGBM with the same settings is trained on these plus the original features. To avoid leakage
   it learns from out-of-fold stage-1 scores, and its CV is nested (inner folds inside each outer fold).
   Runtime ~4 min on a laptop CPU (21 LightGBM fits for 3 seeds).
+- Auxiliary helper targets (v2c, `--aux`, final): stage 1 also trains two helper models on annotation
+  targets, "part of a relay cohort" (`cohort_id`, ~20k positives) and "part of a planted non-relay
+  scenario, suspicious or look-alike" (`scenario_id`, excluding `family` = ambiguous, ~2k positives).
+  Their out-of-fold scores get the same neighbour pooling and feed stage 2. Annotations are targets
+  only, never features; at test time the helpers see only behavioural features. Nested CV 62.3
+  (medium AP 8.5 vs 6.3), site 72.6 (P@1% 93%, R@1% 30%; easy 50%, medium 0% in the top 1%).
 - Organiser starter for comparison: logistic regression on 12 rules.
 
 ## 6. Validation approach and results
@@ -127,7 +133,8 @@ motif between train and test folds. Metric = the site's AP, plus AP restricted t
 | v1: 7 families + LightGBM | 59.4 | 76.7 | 6.0 | 1.1 | **71.0** |
 | + stage-2 neighbour score sharing (nested CV, 7 families) | 61.3 | 79.5 | 6.1 | 1.2 | |
 | v2a: 8 families (+ history) | 60.1 | 77.3 | 6.4 | 1.1 | 71.3 (P@1% 96%, R@1% 31%) |
-| v2b: v2a + stage-2 score sharing (nested CV) | 61.6 | 79.6 | 6.3 | 1.2 | **72.2** (P@1% 94%, R@1% 30%) |
+| v2b: v2a + stage-2 score sharing (nested CV) | 61.6 | 79.6 | 6.3 | 1.2 | 72.2 (P@1% 94%, R@1% 30%) |
+| v2c: v2b + auxiliary relay/motif helper targets (nested CV) | 62.3 | 78.8 | 8.5 | 1.2 | **72.6** (P@1% 93%, R@1% 30%) |
 
 Hyperparameters barely matter (1-seed CV AP, 8 families incl. history): default 60.1, 15 leaves /
 min 50 per leaf 60.3, 7 leaves / min 100 per leaf 59.2. Differences are within seed noise (~0.5),
