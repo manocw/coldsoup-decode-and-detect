@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Decode & Detect - team coldsoup</title>
+<style>
+  @page { size: A4; margin: 15mm 15mm 14mm 15mm; }
+  body { font-family: "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.6pt; line-height: 1.36;
+         color: #1a1a1a; background: #fff; margin: 0; }
+  h1 { font-size: 17pt; margin: 0 0 2pt; }
+  h2 { font-size: 11.5pt; margin: 10pt 0 3pt; border-bottom: 1px solid #bbb; padding-bottom: 1pt; }
+  h3 { font-size: 10pt; margin: 6pt 0 2pt; }
+  p { margin: 3pt 0; }
+  ul, ol { margin: 2pt 0 2pt 15pt; padding: 0; }
+  li { margin: 1pt 0; }
+  table { border-collapse: collapse; width: 100%; margin: 4pt 0; font-size: 8.8pt; }
+  th, td { border: 1px solid #ccc; padding: 2pt 4pt; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  td.n, th.n { text-align: right; white-space: nowrap; }
+  pre { font-family: Consolas, monospace; font-size: 8.4pt; background: #f6f6f6; padding: 4pt 6pt;
+        margin: 3pt 0; white-space: pre-wrap; }
+  code { font-family: Consolas, monospace; font-size: 8.6pt; }
+  .sub { color: #555; margin-bottom: 6pt; }
+  .team td { border: none; padding: 0 10pt 0 0; }
+  .key { background: #f4f8fc; border-left: 3px solid #3a6ea5; padding: 4pt 7pt; margin: 5pt 0; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>Decode &amp; Detect: scoring suspicious XRPL payments</h1>
+<div class="sub">UKCBT XRPL AI Hack &middot; team <b>coldsoup</b> &middot; report, 24 October 2026</div>
+
+<table class="team">
+  <tr><td><b>Team</b></td><td>coldsoup</td></tr>
+  <tr><td><b>Captain</b></td><td>TODO_CAPTAIN</td></tr>
+  <tr><td><b>Members</b></td><td>TODO_MEMBERS</td></tr>
+  <tr><td><b>Code</b></td><td>github.com/manocw/xrpl_hackathon (branch <code>two-stage-model</code>);
+      submitted ZIP built from commit <code>TODO_COMMIT</code></td></tr>
+  <tr><td><b>Final submission</b></td><td><code>v2b_8fam_stack</code>: site score <b>72.2</b>
+      (100 &times; AP on the test week); grouped CV AP on train 61.6</td></tr>
+</table>
+
+<div class="key">
+<b>Summary.</b> We score each payment with a two-stage LightGBM model over ~270 behavioural features
+computed from the whole week of the payment's own split: who funded the sender and how fast, whether
+the payment is part of a fast multi-hop trail, whether a sender-receiver pair is a one-off, whether a
+hub behaves like a scheduled legitimate relay, and how the wallet's behaviour deviates from its own
+history. A second stage lets each payment borrow the first-stage scores of payments linked to it in
+time. The model goes from the organiser baseline's 29.9 grouped-CV AP to 61.6, and scores 72.2 on the
+test week. Easy motifs are essentially solved; medium and hard cases sit close to an information limit
+that we measured directly.
+</div>
+
+<h2>1. Data and what drives the problem</h2>
+<p>Each split is one synthetic week of an XRPL-style ledger: ~40k payments between ~700 wallets in XRP
+and issued USD/GBP/EUR tokens from two issuers, some converting currency through liquidity providers.
+Train has 1,250 suspicious payments (3.1%). Wallets, issuer addresses and dates differ between splits,
+so features must describe <i>behaviour</i>, never identity. Payments are valued from the delivered
+amount at the hourly market rate; the sender's real cost is the first executed transfer leg.</p>
+<p>Exploratory analysis (with labels and annotation metadata used for analysis and CV grouping only)
+produced the findings the whole design rests on:</p>
+<ol>
+  <li><b>It is about bad motif instances, not bad wallets.</b> Labels are pure per planted scenario
+  (~5-28 payments). 169 suspicious scenarios sit among 1,328 legitimate look-alike scenarios of the
+  <i>same shapes</i> (fan-out, fan-in, cycle, chain, ...). Suspicious senders send mostly legitimate
+  traffic (~5% suspicious), and 535 of 700 wallets touch something suspicious, so blacklists cannot work.</li>
+  <li><b>Speed separates the easy cases.</b> Easy motifs complete in 2-14 minutes (a 6-hop cycle in 2.4 min);
+  look-alikes take about an hour. Medium motifs are slowed to 1-3 h and overlap the look-alikes.</li>
+  <li><b>One-off relationships mark planted edges.</b> A pair used once in the week is typical of motifs;
+  legitimate commerce repeats 3-7 times at a fixed period and near-constant amount.</li>
+  <li><b>Legitimate relays are the largest false-positive source.</b> 12 cohorts of 100 look-alike relay
+  scenarios run hub-and-spoke rounds all week: 998 of the baseline's top-5% false positives. Relay edges
+  repeat tens of hours apart; half of legitimate relays run "backwards" (hub pays out, is refilled later),
+  while all 12 suspicious relays run forwards and pass on ~95% of each hop.</li>
+  <li><b>Raw XRPL fields carry no signal</b> (fees uniform over 10/12/15 drops, LastLedgerSequence always
+  +20, SendMax always 1.01&times; cost, in-ledger order random). Only context matters: timing,
+  counterparties, value flow.</li>
+  <li><b>Planted motifs are uniform in time</b> while background traffic is diurnal or in rounds, so quiet
+  periods are enriched for motifs (suspicious and look-alike alike).</li>
+</ol>
+
+<h2>2. Methodology</h2>
+<pre>parquet (transactions + transfers + hourly rates)
+ -> one row per payment: sender cost (first leg), delivered value, USD at the hourly rate
+ -> 8 feature families, each computed on one split's unlabelled week only (cached)
+ -> stage 1: LightGBM on train labels
+ -> stage 2: LightGBM re-scores each payment from its linked neighbours' out-of-fold stage-1 scores
+ -> test scores, min-max scaled to [0, 1]</pre>
+<p>Design rules: features are relative to the wallet and to the split (ratios, ranks, gaps, recurrence),
+never addresses, absolute dates or labels. Using the whole unlabelled week of the same split as context
+is allowed by the rules and is what makes the hard, long-history cases visible at all.</p>
+
+<h2>3. Features</h2>
+<table>
+<tr><th>Family</th><th>What it measures</th><th class="n">CV AP alone + starter</th></tr>
+<tr><td>starter</td><td>Organiser's 12 rules re-implemented: value, sender/receiver activity, forwarding within 1 h, 10-min bursts, pass-through</td><td class="n">33.7</td></tr>
+<tr><td>funding</td><td>Time since the sender was funded and by whom; funder fan-out to wallets that pay on; fan-in/out widths in 5 min-3 h windows; one-off pairs around the payment</td><td class="n">58.7</td></tr>
+<tr><td>relays</td><td>Edge recurrence across rounds, hub in-burst &rarr; out-burst matching, forward vs refill direction, value conserved per hop</td><td class="n">53.8</td></tr>
+<tr><td>fields</td><td>Account cadence, pair novelty, amount vs the wallet's own median, network load around the payment</td><td class="n">52.4</td></tr>
+<tr><td>motifs</td><td>Unsupervised reconstruction of motif instances from wallet timelines: size, span, shape, value retention of the payment's group</td><td class="n">51.8</td></tr>
+<tr><td>hops</td><td>Longest time-matched chain through the payment (10 min / 1 h / 6 h), hop delays, value kept per hop, cumulative skim, cash-out hub at the end of the trail</td><td class="n">50.8</td></tr>
+<tr><td>history</td><td>Pair regularity, wallet roles, deviation from the wallet's own week</td><td class="n">49.3</td></tr>
+<tr><td>amounts</td><td>Value relations to adjacent payments (pass-on ratios); static amount tests were null</td><td class="n">48.0</td></tr>
+</table>
+
+<h2>4. Model</h2>
+<ul>
+  <li><b>Stage 1:</b> LightGBM, binary log-loss, 400 trees, learning rate 0.03, 31 leaves, &ge;20 samples per
+  leaf, 80% row and column subsampling, L2 = 1.0, averaged over 3 seeds; ~270 features.</li>
+  <li><b>Stage 2 (score sharing):</b> for each payment, max / mean / top-2 mean of the stage-1 scores of
+  (a) the same sender's and (b) the same receiver's payments within 10 min, 1 h and 6 h, (c) the receiver's
+  onward payments, (d) the sender's funding payments in those windows, and (e) its one-off-pair motif group
+  (links within 2, 10, 30 min). A second LightGBM with the same settings uses these plus the stage-1 features.
+  It is trained on <i>out-of-fold</i> stage-1 scores, and its CV is nested, so no payment ever sees a score
+  produced by a model that saw its label.</li>
+  <li>CPU only: ~4 min on a laptop (21 LightGBM fits), peak memory ~1.9 GB. No GPU, external services,
+  pre-trained models or LLMs at runtime.</li>
+</ul>
+
+<h2>5. Validation approach</h2>
+<p>5-fold <code>StratifiedGroupKFold</code> on train, grouped by relay cohort &gt; scenario &gt; payment, so whole
+planted motifs and whole relay cohorts stay in one fold. Random row splits leak sibling payments of the
+same motif across folds and, with only ~250 positives in a 20% holdout, move the score by several points
+from split to split. The metric is the site's AP, also reported per difficulty (easy / medium / hard
+positives against all negatives). Hyperparameters were checked but barely matter (default 60.1, 15 leaves
+60.3, 7 leaves 59.2: within the ~0.5 seed noise), so effort went into features and the two-stage design.</p>
+
+<h2>6. Results</h2>
+<table>
+<tr><th>Model</th><th class="n">CV AP</th><th class="n">easy</th><th class="n">medium</th><th class="n">hard</th><th class="n">Site score</th></tr>
+<tr><td>Organiser starter (logistic regression, its own random split)</td><td class="n">24.6</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>Starter features, logistic regression, grouped CV</td><td class="n">29.9</td><td class="n">38.3</td><td class="n">1.3</td><td class="n">1.1</td><td></td></tr>
+<tr><td>Starter features + LightGBM</td><td class="n">33.7</td><td class="n">44.5</td><td class="n">1.4</td><td class="n">0.9</td><td></td></tr>
+<tr><td>v1: 7 families + LightGBM</td><td class="n">59.4</td><td class="n">76.7</td><td class="n">6.0</td><td class="n">1.1</td><td class="n">71.0</td></tr>
+<tr><td>v2a: 8 families (+ history)</td><td class="n">60.1</td><td class="n">77.3</td><td class="n">6.4</td><td class="n">1.1</td><td class="n">71.3</td></tr>
+<tr><td><b>v2b: v2a + stage-2 score sharing (nested CV)</b></td><td class="n"><b>61.6</b></td><td class="n">79.6</td><td class="n">6.3</td><td class="n">1.2</td><td class="n"><b>72.2</b></td></tr>
+</table>
+<p>On the test week, v2b's top 1% (~401 payments) is 94% precise and holds 30% of all positives; the site's
+breakdown shows ~50% of easy positives and ~10% of medium positives there, none of the hard ones. Only
+~32% of positives can fit in the top 1% at all. A re-run of the same code on another machine scored 72.1
+(library-version noise). The site score is above our grouped CV, i.e. the behavioural features transfer to
+a week with new wallets, new issuers and more currency conversions.</p>
+
+<h2>7. Interesting findings</h2>
+<ul>
+  <li><b>The relay features are a false-positive killer.</b> "Does this pair repeat on a schedule?" and
+  "does the hub run forwards?" cut legitimate relays in the top 5% from 998 to 462 and background
+  payments from 206 to 94.</li>
+  <li><b>Where the remaining errors are</b> (out-of-fold, v1): 754 of 800 easy positives rank in the top 1,250.
+  The negatives that share that range are mostly legitimate look-alike motifs (329), then relays (109) and
+  background (22). Medium positives sit around rank 2,500, behind ~730 relay and ~660 look-alike payments.</li>
+  <li><b>The look-alikes are adversarially designed.</b> A legitimate bipartite look-alike steps every 6-12 s,
+  faster than the easy suspicious bipartite (~40 s); a legitimate multi-stage look-alike outranks an easy
+  suspicious one moving in 12-second steps. Speed alone cannot separate them; only combinations of context can.</li>
+  <li><b>Medium is at the information limit.</b> Given the <i>true</i> scenario groupings and 22 whole-scenario
+  statistics (analysis only), a classifier separates medium suspicious from look-alike scenarios at AUC
+  0.48-0.57, i.e. chance, versus 0.87-0.91 for easy. The only weak signal: medium motifs are <i>slower</i>
+  than their look-alikes (median step 15-18 vs ~9 min, AUC 0.70) and keep more value per hop (0.91-0.96 vs
+  0.83-0.88).</li>
+  <li><b>Hard relays likewise.</b> With the true relay scenarios, the only property separating the 12
+  suspicious relays from 1,188 legitimate ones is direction (all forwards vs half refills, AUC 0.75); size,
+  rounds, counterparties, retention, amounts and conversions are all at AUC ~0.5.</li>
+  <li><b>Score sharing helps where motifs are clear.</b> Stage 2 adds +1.5 to +2.3 CV AP, nearly all of it on
+  easy cases: once part of a fast motif is found, its siblings follow.</li>
+</ul>
+
+<h2>8. Tested and rejected ideas</h2>
+<p>Each of these was measured with the grouped CV or on the leaderboard and dropped because it did not help
+(differences of &le;0.5 AP are within seed noise).</p>
+<table>
+<tr><th>Idea</th><th>Result</th><th>Why we think it failed</th></tr>
+<tr><td>Currency-conversion features (legs, spreads, cross-issuer swaps)</td><td>Excluded by design</td>
+    <td>1/2/3-leg mix identical for suspicious and legitimate (59/31/10%); conversion share shifts from 41% (train) to 50% (test), so these features would only add drift.</td></tr>
+<tr><td>Static amount tests: round amounts, just under 100/500/1k/3k/5k/10k thresholds, repeated identical amounts</td><td>Null</td>
+    <td>No excess mass under any threshold; amounts top out ~4.6k USD. Only relations to adjacent payments (pass-on ratios) carry signal.</td></tr>
+<tr><td>Hour-of-day profiles</td><td>Null</td><td>Motifs are uniform in time; the useful version is "network load around the payment".</td></tr>
+<tr><td>Mule-wallet reuse across scenarios</td><td>Null</td><td>Wallets in medium/hard scenarios are no more linked to other suspicious scenarios than look-alike wallets (6.9% vs 6.6%).</td></tr>
+<tr><td>Time-respecting cycle family (<code>cycles</code>)</td><td>CV ~45.7 alone; no gain on top</td><td>Cycles are already captured by hops and motifs.</td></tr>
+<tr><td>Reconstructing medium motifs by shared wallets and scoring the group</td><td>No gain</td><td>Grouping bleeds into background traffic: one-off-pair groups are only 58% pure at a 30-min link, 37% at 1 h.</td></tr>
+<tr><td>Hyperparameter tuning (leaves, min samples per leaf)</td><td>59.2-60.3 vs 60.1</td><td>Within seed noise; the limit is information, not capacity.</td></tr>
+<tr><td>Teammate's flow-episode model (site 66.8) in one model with ours, or rank-blended in CV</td><td>CV 60.3 / 60.4 vs 60.1</td>
+    <td>Both feature designs capture the same signal.</td></tr>
+<tr><td>Rank blend on test: 0.85 v2b + 0.15 flow-episode model; 0.70 / 0.30</td><td>Site 71.7; 71.2 (v2b 72.2)</td>
+    <td>Rankings agree at the top (276/401 shared in the top 1%, Spearman 0.59); the disagreement is in the bulk, where the other model is weaker. More weight, lower score.</td></tr>
+<tr><td>Self-training on the test week: top 300 test payments as pseudo-positives, bottom 60% as pseudo-negatives, 4 time blocks cross-fitted, weight 0.5</td><td>Site 71.5; blended 50/50 with v2b 72.1</td>
+    <td>Pseudo-labels repeat what the model already ranks well (easy cases); they add nothing for medium/hard, which are at their information limit.</td></tr>
+</table>
+
+<h2>9. Limitations</h2>
+<ul>
+  <li>Medium cases remain hard (AP ~6) and hard cases near random (AP ~1): slowed-down motifs look like
+  their legitimate look-alikes, and we showed this holds even with perfect grouping.</li>
+  <li>25 "ambiguous" hard payments sit inside regular scheduled series with the same amount and period as
+  their legitimate siblings: unlearnable by construction.</li>
+  <li>Distribution drift: test has more tiny payments (27% under $20 vs 22%) and more conversions. We
+  prefer ratio and retention features over absolute amounts for that reason.</li>
+  <li>Whole-week per-wallet aggregates could memorise wallets inside train and so inflate CV; wallets are
+  disjoint across splits, so this cannot leak into test (and the site score is above CV).</li>
+  <li>The data is synthetic: the patterns are the simulator's. Transfer to the real XRPL is untested.</li>
+</ul>
+
+<h2>10. Reproducibility</h2>
+<p>Python 3.14, CPU only. Put the organiser data under <code>data/train/</code> and <code>data/test/</code>, then:</p>
+<pre>python -m venv venv &amp;&amp; ./venv/bin/pip install -r requirements.txt
+./venv/bin/python -m src.predict --features starter funding relays fields motifs hops amounts history \
+    --seeds 3 --stack --name v2b_8fam_stack        # -> submissions/v2b_8fam_stack.csv, ~4 min</pre>
+<p>Add <code>--cv</code> for the nested grouped CV report. Libraries: pandas, numpy, pyarrow, scikit-learn,
+LightGBM, networkx, scipy. Labels and annotation metadata are used only as the target and for CV grouping;
+no external data. The code was written with AI assistance (Claude Code) under the team's direction and
+review; no LLM is part of the model. Licence: MIT.</p>
+
+</body>
+</html>

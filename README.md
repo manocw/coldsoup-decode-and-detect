@@ -8,6 +8,13 @@ trained on the labelled `train/` split and scores the test split. Optionally a s
 stage re-scores each payment using the first-stage scores of its linked neighbours (same wallet
 close in time, hand-offs, one-off-pair motif groups), trained on out-of-fold first-stage scores.
 
+## Team
+
+- Team: coldsoup
+- Captain: TODO_CAPTAIN
+- Members: TODO_MEMBERS
+- Final submission: `v2b_8fam_stack` (site score 72.2). Report: `docs/report.pdf` (source `docs/report.html`).
+
 ## Reproduce the predictions
 
 Python 3.14 (tested 3.14.4), Linux, CPU only.
@@ -30,6 +37,10 @@ peak memory 1.4 / 1.9 GB. Feature building takes < 20 s per split per family and
 `cache/`. Add `--cv` to also print the grouped cross-validation report on train (nested CV for
 `--stack`, ~5 min). `src/features/cycles.py` and `groups.py` are experimental families not used
 by these runs.
+
+On Windows, if Application Control blocks pyarrow's parquet DLL ("DLL load failed while importing
+_parquet"), `pip install fastparquet` and run with that engine:
+`python -c "import sys,runpy,pandas as pd; pd.set_option('io.parquet.engine','fastparquet'); sys.argv=['src.predict',*sys.argv[1:]]; runpy.run_module('src.predict',run_name='__main__')" --features $F --seeds 3 --stack --name v2b_8fam_stack`
 
 ## Layout
 

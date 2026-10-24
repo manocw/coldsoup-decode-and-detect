@@ -17,8 +17,8 @@ results, interesting findings, limitations. Sections 2-8 map onto those.
 | Code | `src/` (built into `submissions/code.zip` by `python -m src.package`) |
 | Model details / settings | Section 4 below; exact settings in `src/evaluate.py:make_model` |
 | Run instructions | `README.md` (exact command, ~1-2 min on a laptop CPU, no external services) |
-| Slides or report | **team to write** from this brief |
-| Team details | **TODO: team name coldsoup, captain = ?, members = ?, final commit = ?** |
+| Slides or report | `docs/report.pdf` (4 pages, source `docs/report.html`) |
+| Team details | README `## Team` and report header: coldsoup, captain TODO_CAPTAIN, members TODO_MEMBERS |
 
 No prompts/LLMs are used in the model itself, so there is no prompt set. AI assistance (Claude Code)
 was used to write the code; this is declared in the README.
