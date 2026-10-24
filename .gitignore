@@ -1,0 +1,13 @@
+# competition data is not redistributable; keep it local
+data/
+# outputs
+submissions/
+cache/
+*.zip
+# python
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+# organiser materials (from the training download), not ours to redistribute
+reference/

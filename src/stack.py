@@ -1,0 +1,156 @@
+"""Two-stage scoring: share evidence between linked transactions.
+
+Labels are pure per planted scenario, so a transaction whose linked neighbours look suspicious is
+more likely suspicious itself. Stage 1 scores every tx from its own features. Stage 2 adds, for each
+tx, aggregates of the stage-1 scores of its neighbours (same sender / same receiver close in time,
+and time-respecting hand-offs: the receiver paying on shortly after, the sender funded shortly
+before), then re-scores.
+
+Leakage control: stage 2 is trained on OUT-OF-FOLD stage-1 scores. The CV of the whole two-stage
+model is nested: for each outer fold, stage-1 OOF scores are computed on the remaining folds only.
+
+    ./venv/bin/python -m src.stack --features starter funding relays ... [--cv]
+"""
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import StratifiedGroupKFold
+
+from src.evaluate import cv_groups, make_model, metrics
+from src.features.groups import _components
+
+WINDOWS = (600, 3600, 6 * 3600)          # 10 min, 1 h, 6 h
+GROUP_SCALES = (120, 600, 1800)          # one-off-pair motif groups linked within 2 / 10 / 30 min
+
+
+def _index(p, col):
+    """wallet -> positions of its txs in p (p is time-sorted, so positions are time-sorted)."""
+    return {a: np.asarray(ix) for a, ix in p.groupby(col, sort=False).indices.items()}
+
+
+def _agg(vals):
+    if len(vals) == 0:
+        return 0.0, 0.0, 0.0
+    top = np.sort(vals)[-2:]
+    return float(vals.max()), float(vals.mean()), float(top.mean())
+
+
+def neighbor_features(p, s):
+    """Aggregates of scores s (aligned with p) over each tx's neighbourhoods, excluding itself."""
+    ts = p.ts.to_numpy()
+    by_sender, by_receiver = _index(p, "sender"), _index(p, "receiver")
+    S, R = p.sender.to_numpy(), p.receiver.to_numpy()
+    empty = np.empty(0, dtype=np.int64)
+    out = {}
+    for w in WINDOWS:
+        tag = f"{w // 60}m"
+        cols = {k: np.zeros(len(p)) for k in
+                [f"{r}_{a}_{tag}" for r in ("same_sender", "same_receiver", "downstream", "upstream")
+                 for a in ("max", "mean", "top2")]}
+        for i in range(len(p)):
+            t = ts[i]
+            rel = {}
+            ix = by_sender.get(S[i], empty)
+            lo, hi = np.searchsorted(ts[ix], t - w, "left"), np.searchsorted(ts[ix], t + w, "right")
+            rel["same_sender"] = ix[lo:hi][ix[lo:hi] != i]
+            ix = by_receiver.get(R[i], empty)
+            lo, hi = np.searchsorted(ts[ix], t - w, "left"), np.searchsorted(ts[ix], t + w, "right")
+            rel["same_receiver"] = ix[lo:hi][ix[lo:hi] != i]
+            ix = by_sender.get(R[i], empty)             # receiver pays on within w
+            lo, hi = np.searchsorted(ts[ix], t, "left"), np.searchsorted(ts[ix], t + w, "right")
+            rel["downstream"] = ix[lo:hi][ix[lo:hi] != i]
+            ix = by_receiver.get(S[i], empty)           # sender was funded within w before
+            lo, hi = np.searchsorted(ts[ix], t - w, "left"), np.searchsorted(ts[ix], t, "right")
+            rel["upstream"] = ix[lo:hi][ix[lo:hi] != i]
+            for r, nb in rel.items():
+                mx, mn, t2 = _agg(s[nb])
+                cols[f"{r}_max_{tag}"][i] = mx
+                cols[f"{r}_mean_{tag}"][i] = mn
+                cols[f"{r}_top2_{tag}"][i] = t2
+        out.update(cols)
+    # motif groups: one-off payments linked through shared wallets within dt (see features.groups)
+    pair = p.sender + ">" + p.receiver
+    one_off = (pair.map(pair.value_counts()) == 1).to_numpy()
+    q = p[one_off]
+    for dt in GROUP_SCALES:
+        comp = _components(q.sender.to_numpy(), q.receiver.to_numpy(), q.ts.to_numpy(), dt)
+        g = pd.DataFrame({"c": comp, "s": s[one_off]}).groupby("c").s
+        size, total, top = g.transform("size"), g.transform("sum"), g.transform("max")
+        others = (total - s[one_off]) / (size - 1).replace(0, np.nan)
+        for name, vals in (("group_mean_others", others), ("group_max", top), ("group_size", size)):
+            v = np.full(len(p), np.nan)
+            v[one_off] = vals.to_numpy()
+            out[f"{name}_{dt // 60}m"] = v
+    f = pd.DataFrame(out, index=p.index)
+    f["own"] = s
+    return f
+
+
+def _fit_scores(X, y, train_idx, pred_idx, kind, seed):
+    m = make_model(kind, seed).fit(X[train_idx], y[train_idx])
+    return m.predict_proba(X[pred_idx])[:, 1]
+
+
+def oof_scores(X, y, groups, rows, kind="lgbm", seed=0, n_splits=5):
+    """Out-of-fold stage-1 scores for the given rows only (folds formed inside them)."""
+    s = np.zeros(len(y))
+    skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=100 + seed)
+    for tr, te in skf.split(X[rows], y[rows], groups[rows]):
+        s[rows[te]] = _fit_scores(X, y, rows[tr], rows[te], kind, seed)
+    return s
+
+
+def stage2_matrix(X, p, s, mode):
+    nb = neighbor_features(p, s).to_numpy()
+    return nb if mode == "scores" else np.hstack([X, nb])
+
+
+def nested_cv(Xdf, p, kind="lgbm", seed=0, mode="full", n_splits=5):
+    """Honest CV of stage 1 and stage 2 with identical outer folds."""
+    X = Xdf.to_numpy(float)
+    y = p.is_suspicious.to_numpy()
+    groups = cv_groups(p)
+    s1 = np.zeros(len(y))
+    s2 = np.zeros(len(y))
+    outer = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    for k, (tr, te) in enumerate(outer.split(X, y, groups)):
+        # stage-1 scores: OOF inside the training folds, a full-train model for the held-out fold
+        s_in = oof_scores(X, y, groups, tr, kind, seed)
+        s_in[te] = _fit_scores(X, y, tr, te, kind, seed)
+        s1[te] = s_in[te]
+        Z = stage2_matrix(X, p, s_in, mode)
+        s2[te] = make_model(kind, seed).fit(Z[tr], y[tr]).predict_proba(Z[te])[:, 1]
+        print(f"  outer fold {k + 1}/{n_splits} done", flush=True)
+    return s1, s2
+
+
+def fit_predict(Xtr_df, ptr, Xte_df, pte, kind="lgbm", seeds=(0, 1, 2), mode="full"):
+    Xtr, Xte = Xtr_df.to_numpy(float), Xte_df.to_numpy(float)
+    y = ptr.is_suspicious.to_numpy()
+    groups = cv_groups(ptr)
+    rows = np.arange(len(y))
+    out = np.zeros(len(Xte))
+    for seed in seeds:
+        s_tr = oof_scores(Xtr, y, groups, rows, kind, seed)
+        s_te = make_model(kind, seed).fit(Xtr, y).predict_proba(Xte)[:, 1]
+        Ztr, Zte = stage2_matrix(Xtr, ptr, s_tr, mode), stage2_matrix(Xte, pte, s_te, mode)
+        out += make_model(kind, seed).fit(Ztr, y).predict_proba(Zte)[:, 1]
+    return out / len(seeds)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    from src.features import build_features
+    from src.load import load_split
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--features", nargs="+", required=True)
+    ap.add_argument("--mode", default="full", choices=["full", "scores"])
+    ap.add_argument("--model", default="lgbm")
+    a = ap.parse_args()
+    p = load_split("train")
+    X = build_features("train", a.features, p)
+    s1, s2 = nested_cv(X, p, a.model, mode=a.mode)
+    for name, s in (("stage1", s1), (f"stage2[{a.mode}]", s2)):
+        m = metrics(s, p)
+        print(f"[{name}] " + "  ".join(f"{k}={v:.3f}" if v < 1.5 else f"{k}={v:.1f}" for k, v in m.items()))

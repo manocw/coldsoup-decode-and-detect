@@ -1,0 +1,8 @@
+# Python 3.14 (tested with 3.14.4)
+lightgbm==4.7.0
+networkx==3.6
+numpy==2.5.4
+pandas==2.3.3
+pyarrow==26.0.0
+scikit-learn==1.8.0
+scipy==1.18.1
