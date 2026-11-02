@@ -1,0 +1,1 @@
+AI assistance records: ai_session_log.md (summary of the Claude chat session, user prompts verbatim) and the Claude Code session transcript used to build, test and document the final model. The model itself uses no LLM or prompts.

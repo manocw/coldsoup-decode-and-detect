@@ -1,0 +1,7 @@
+Team: coldsoup
+Captain: Manolo Chow
+Members: Manolo Chow (captain), Marat Sagdiiev, Tomas Balnionis
+Version: git commit 579d297c8e752c4e82e07972e70e531af2b5f315
+Predictions: submissions/b1_rank_v7_v12.csv
+Report: docs/report.pdf
+Run instructions, model details and validation results: README.md
